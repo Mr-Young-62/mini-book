@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { BrowserMultiFormatReader, NotFoundException } from '@zxing/library';
 import { Capacitor } from '@capacitor/core';
 import {
   Camera,
@@ -23,9 +22,17 @@ interface BarcodeScannerProps {
 
 export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onScan, isProcessing = false }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const readerRef = useRef<BrowserMultiFormatReader | null>(null);
+  const readerRef = useRef<any | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Lazily load @zxing/library (~large dependency) so it does not bloat the initial bundle
+  const loadReader = async () => {
+    if (readerRef.current) return readerRef.current;
+    const zxing = await import('@zxing/library');
+    readerRef.current = new zxing.BrowserMultiFormatReader();
+    return readerRef.current;
+  };
 
   const [hasCamera, setHasCamera] = useState<boolean>(true);
   const [cameraActive, setCameraActive] = useState<boolean>(false);
@@ -62,8 +69,7 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onScan, isProces
 
   // Initialize and list video devices
   useEffect(() => {
-    const reader = new BrowserMultiFormatReader();
-    readerRef.current = reader;
+    loadReader();
 
     if (navigator.mediaDevices?.enumerateDevices) {
       navigator.mediaDevices
@@ -107,10 +113,11 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onScan, isProces
 
     try {
       setCameraActive(true);
-      await readerRef.current.decodeFromVideoDevice(
+      const reader = await loadReader();
+      await reader.decodeFromVideoDevice(
         devId ? devId : null,
         videoRef.current,
-        (result, err) => {
+        (result: any, err: any) => {
           if (result) {
             const raw = result.getText();
             const cleaned = cleanIsbn(raw);
@@ -126,7 +133,7 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onScan, isProces
               onScan(raw);
             }
           }
-          if (err && !(err instanceof NotFoundException)) {
+          if (err && err.name !== 'NotFoundException') {
             // Frame misses are normal
           }
         }
@@ -201,10 +208,9 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onScan, isProces
     if (!file) return;
 
     setErrorMsg(null);
-    setIsAnalyzingImage(true);
-
     try {
-      const reader = readerRef.current || new BrowserMultiFormatReader();
+      setIsAnalyzingImage(true);
+      const reader = await loadReader();
       const objectUrl = URL.createObjectURL(file);
       const img = new Image();
 

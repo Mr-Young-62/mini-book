@@ -1,3 +1,4 @@
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { ScannedBookMetadata } from '../types/library';
 import { cleanIsbn, isValidIsbn, normalizeToIsbn13 } from './isbnValidator';
 
@@ -8,8 +9,65 @@ export interface MetadataFetchResult {
   source?: 'open_library' | 'google_books' | 'manual';
 }
 
+interface EdgeMetadataResponse {
+  title: string;
+  subtitle?: string;
+  authors: string[];
+  publisher?: string;
+  publicationYear?: number;
+  isbn10?: string;
+  isbn13: string;
+  description?: string;
+  language?: string;
+  pageCount?: number;
+  coverUrl?: string;
+  categories: string[];
+  source: 'open_library' | 'google_books' | 'manual';
+}
+
+// In-memory cache: repeated lookups (test barcodes, re-scans) skip the network
+const metadataCache = new Map<string, MetadataFetchResult>();
+
+function finalizeSuccess(
+  metadata: ScannedBookMetadata,
+  source: Exclude<MetadataFetchResult['source'], undefined>
+): MetadataFetchResult {
+  const result: MetadataFetchResult = { success: true, metadata, source };
+  metadataCache.set(metadata.isbn13, result);
+  return result;
+}
+
+function mapEdgeResponse(data: EdgeMetadataResponse, isbn13: string, isbn10?: string): ScannedBookMetadata {
+  const metadata: ScannedBookMetadata = {
+    title: data.title,
+    subtitle: data.subtitle,
+    authors: Array.isArray(data.authors) && data.authors.length > 0
+      ? data.authors.filter(Boolean)
+      : ['Unknown Author'],
+    publisher: data.publisher,
+    publicationYear: data.publicationYear,
+    isbn10: data.isbn10 || isbn10,
+    isbn13: data.isbn13 || isbn13,
+    description: data.description,
+    language: data.language,
+    pageCount: data.pageCount,
+    coverUrl:
+      data.coverUrl ||
+      `https://covers.openlibrary.org/b/isbn/${isbn13}-L.jpg`,
+    categories:
+      Array.isArray(data.categories) && data.categories.filter(Boolean).length > 0
+        ? data.categories.filter(Boolean)
+        : ['General Collection'],
+    source: data.source,
+  };
+
+  return metadata;
+}
+
 /**
- * Fetch book metadata by ISBN using real Open Library API with Google Books fallback
+ * Fetch book metadata by ISBN.
+ * Order: Supabase edge function (server-side, cached, no client rate-limits)
+ * -> direct Open Library API -> Google Books fallback -> manual entry.
  */
 export async function fetchBookMetadataByIsbn(isbn: string): Promise<MetadataFetchResult> {
   const cleaned = cleanIsbn(isbn);
@@ -23,7 +81,35 @@ export async function fetchBookMetadataByIsbn(isbn: string): Promise<MetadataFet
   const isbn13 = normalizeToIsbn13(cleaned);
   const isbn10 = cleaned.length === 10 ? cleaned : undefined;
 
-  // 1. Primary API: Open Library Books API
+  const cached = metadataCache.get(isbn13);
+  if (cached) return cached;
+
+  // 1. Supabase edge function: bypasses client-side rate limits & uses server API key
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase.functions.invoke('book-metadata', {
+        body: { isbn: isbn13 },
+      });
+
+      if (!error && data && (data as EdgeMetadataResponse).title && data.source) {
+        const metadata = mapEdgeResponse(data as EdgeMetadataResponse, isbn13, isbn10);
+        const result: MetadataFetchResult = {
+          success: true,
+          metadata,
+          source: metadata.source === 'manual' ? 'manual' : metadata.source as 'open_library' | 'google_books',
+        };
+        metadataCache.set(isbn13, result);
+        return result;
+      }
+      // 404 "not found" from the function falls through to the direct pipeline,
+      // which would return the same result anyway.
+    } catch (err: any) {
+      console.warn('Edge function book-metadata unavailable, falling back to direct lookup:', err?.message);
+    }
+  }
+
+  // 2. Direct pipeline: Open Library primary, Google Books fallback
+  // Primary API: Open Library Books API
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 6500);
@@ -64,25 +150,21 @@ export async function fetchBookMetadataByIsbn(isbn: string): Promise<MetadataFet
           publicationYear: pubYear,
           isbn10: item.identifiers?.isbn_10?.[0] || isbn10,
           isbn13,
-          description: typeof item.notes === 'string' ? item.notes : (item.description || undefined),
+          description: typeof item.notes === 'string' ? item.notes : (typeof item.description === 'object' ? item.description?.value : item.description) || undefined,
           pageCount: item.number_of_pages,
           coverUrl,
           categories: categories.length > 0 ? categories : ['General Collection'],
           source: 'open_library',
         };
 
-        return {
-          success: true,
-          metadata,
-          source: 'open_library',
-        };
+        return finalizeSuccess(metadata, 'open_library');
       }
     }
   } catch (err: any) {
     console.warn('Open Library API fetch failed or timed out:', err.message);
   }
 
-  // 2. Secondary API: Google Books API Fallback
+  // Secondary API: Google Books API Fallback
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 6500);
@@ -127,18 +209,14 @@ export async function fetchBookMetadataByIsbn(isbn: string): Promise<MetadataFet
           source: 'google_books',
         };
 
-        return {
-          success: true,
-          metadata,
-          source: 'google_books',
-        };
+        return finalizeSuccess(metadata, 'google_books');
       }
     }
   } catch (err: any) {
     console.warn('Google Books API fetch failed or timed out:', err.message);
   }
 
-  // 3. Fallback: No external record found
+  // Fallback: No external record found
   return {
     success: false,
     error: `No bibliographic record found for ISBN ${isbn13} across Open Library or Google Books. You can enter the book details manually.`,

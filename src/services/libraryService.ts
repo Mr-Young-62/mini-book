@@ -126,7 +126,32 @@ export class LibraryService {
 
   static async getBookByIsbn(isbn: string): Promise<Book | null> {
     const isbn13 = normalizeToIsbn13(isbn);
-    const books = await this.getBooks();
+
+    if (isSupabaseConfigured && supabase) {
+      const { data, error } = await supabase
+        .from('books')
+        .select(`
+          *,
+          publisher:publishers(id, name),
+          authors:book_authors(author:authors(id, name)),
+          categories:book_categories(category:categories(id, name)),
+          copies:book_copies(*)
+        `)
+        .eq('isbn_13', isbn13)
+        .maybeSingle();
+
+      if (!error && data) {
+        return {
+          ...data,
+          authors: (data as any).authors?.map((a: any) => a.author).filter(Boolean) || [],
+          categories: (data as any).categories?.map((c: any) => c.category).filter(Boolean) || [],
+          copies: (data as any).copies || [],
+        };
+      }
+      return null;
+    }
+
+    const books = getLocal<Book[]>(STORAGE_KEY_BOOKS, initialBooks);
     return books.find((b) => b.isbn_13 === isbn13 || b.isbn_10 === isbn) || null;
   }
 
@@ -140,7 +165,7 @@ export class LibraryService {
       acquisitionPrice: number;
       acquisitionSource?: string;
     }
-  ): Promise<{ book: Book; newCopies: BookCopy[] }> {
+  ): Promise<{ book: Book; newCopies: BookCopy[]; syncError?: string }> {
     const isbn13 = normalizeToIsbn13(metadata.isbn13);
     const books = getLocal<Book[]>(STORAGE_KEY_BOOKS, initialBooks);
     const copies = getLocal<BookCopy[]>(STORAGE_KEY_COPIES, initialCopies);
@@ -164,14 +189,14 @@ export class LibraryService {
         cover_url: metadata.coverUrl,
         metadata_source: metadata.source,
         created_at: new Date().toISOString(),
-        authors: metadata.authors.map((name) => ({ id: crypto.randomUUID(), name })),
-        categories: metadata.categories.map((name) => ({ id: crypto.randomUUID(), name })),
+        authors: metadata.authors.filter(Boolean).map((name) => ({ id: crypto.randomUUID(), name })),
+        categories: metadata.categories.filter(Boolean).map((name) => ({ id: crypto.randomUUID(), name })),
       };
       books.unshift(existingBook);
       setLocal(STORAGE_KEY_BOOKS, books);
     }
 
-    // Generate physical copies
+    // Generate physical copies (inventory codes are globally sequential; barcodes stay unique)
     const newCopies: BookCopy[] = [];
     const highestNum = copies.reduce((max, c) => {
       const match = c.inventory_code.match(/RDW-(\d+)/);
@@ -189,7 +214,7 @@ export class LibraryService {
         id: crypto.randomUUID(),
         book_id: bookId,
         inventory_code: invCode,
-        barcode: `${isbn13}-${(copyNum % 100).toString().padStart(2, '0')}`,
+        barcode: `${isbn13}-${copyNum}`,
         shelf_location: inventoryParams.shelfLocation,
         rack_number: inventoryParams.rackNumber,
         condition: inventoryParams.condition,
@@ -213,26 +238,118 @@ export class LibraryService {
     );
 
     // Sync to Supabase if configured
+    let syncError: string | undefined;
     if (isSupabaseConfigured && supabase) {
       try {
-        await supabase.from('books').upsert({
-          id: existingBook.id,
-          isbn_13: existingBook.isbn_13,
-          isbn_10: existingBook.isbn_10,
-          title: existingBook.title,
-          subtitle: existingBook.subtitle,
-          description: existingBook.description,
-          publication_year: existingBook.publication_year,
-          language: existingBook.language,
-          page_count: existingBook.page_count,
-          cover_url: existingBook.cover_url,
-          metadata_source: existingBook.metadata_source,
-        });
+        // Upsert on isbn_13 so concurrent/other-device records don't break on unique constraint
+        const { data: remoteBook, error: bookErr } = await supabase
+          .from('books')
+          .upsert(
+            {
+              id: existingBook.id,
+              isbn_13: existingBook.isbn_13,
+              isbn_10: existingBook.isbn_10,
+              title: existingBook.title,
+              subtitle: existingBook.subtitle,
+              description: existingBook.description,
+              publication_year: existingBook.publication_year,
+              language: existingBook.language,
+              page_count: existingBook.page_count,
+              cover_url: existingBook.cover_url,
+              metadata_source: existingBook.metadata_source,
+            },
+            { onConflict: 'isbn_13' }
+          )
+          .select('id')
+          .maybeSingle();
+
+        if (bookErr) throw bookErr;
+
+        // Remote may reuse a row created by another device (different id from local uuid)
+        const remoteBookId = remoteBook?.id || existingBook.id;
+
+        // Publisher (unique by name)
+        if (existingBook.publisher?.name) {
+          const { data: pub, error: pubErr } = await supabase
+            .from('publishers')
+            .upsert({ name: existingBook.publisher.name }, { onConflict: 'name' })
+            .select('id')
+            .maybeSingle();
+          if (pubErr) throw pubErr;
+          if (pub?.id && remoteBookId === existingBook.id) {
+            const { error: linkErr } = await supabase
+              .from('books')
+              .update({ publisher_id: pub.id })
+              .eq('id', remoteBookId);
+            if (linkErr) throw linkErr;
+          }
+        }
+
+        // Authors (not unique; de-dupe by name client-side, reuse remote rows when present)
+        const seenAuthors = new Set<string>();
+        for (const author of existingBook.authors.filter(Boolean)) {
+          const name = author.name;
+          if (!name || seenAuthors.has(name)) continue;
+          seenAuthors.add(name);
+
+          const { data: existingAuthor } = await supabase
+            .from('authors')
+            .select('id')
+            .ilike('name', name)
+            .limit(1)
+            .maybeSingle();
+
+          let authorId = existingAuthor?.id;
+          if (!authorId) {
+            const { data: created, error: authorErr } = await supabase
+              .from('authors')
+              .insert({ name })
+              .select('id')
+              .maybeSingle();
+            if (authorErr) throw authorErr;
+            authorId = created?.id;
+          }
+
+          if (authorId) {
+            const { error: linkErr } = await supabase
+              .from('book_authors')
+              .upsert(
+                { book_id: remoteBookId, author_id: authorId },
+                { onConflict: 'book_id,author_id', ignoreDuplicates: true }
+              );
+            if (linkErr) throw linkErr;
+          }
+        }
+
+        // Categories (unique by name)
+        const seenCategories = new Set<string>();
+        for (const category of existingBook.categories.filter(Boolean)) {
+          const name = category.name;
+          if (!name || seenCategories.has(name)) continue;
+          seenCategories.add(name);
+
+          const { data: cat, error: catErr } = await supabase
+            .from('categories')
+            .upsert({ name }, { onConflict: 'name' })
+            .select('id')
+            .maybeSingle();
+          if (catErr) throw catErr;
+
+          if (cat?.id) {
+            const { error: linkErr } = await supabase
+              .from('book_categories')
+              .upsert(
+                { book_id: remoteBookId, category_id: cat.id },
+                { onConflict: 'book_id,category_id', ignoreDuplicates: true }
+              );
+            if (linkErr) throw linkErr;
+          }
+        }
 
         for (const copy of newCopies) {
-          await supabase.from('book_copies').insert({
+          const { error: copyErr } = await supabase.from('book_copies').insert({
             id: copy.id,
-            book_id: copy.book_id,
+            book_id: remoteBookId,
             inventory_code: copy.inventory_code,
             barcode: copy.barcode,
             shelf_location: copy.shelf_location,
@@ -243,13 +360,16 @@ export class LibraryService {
             acquisition_source: copy.acquisition_source,
             status: copy.status,
           });
+          if (copyErr) throw copyErr;
         }
-      } catch (err) {
-        console.warn('Supabase remote sync warning:', err);
+      } catch (err: any) {
+        // Keep local save intact; surface remote failure to the caller instead of hiding it
+        syncError = err?.message || String(err);
+        console.warn('Supabase remote sync warning:', syncError);
       }
     }
 
-    return { book: existingBook, newCopies };
+    return { book: existingBook, newCopies, syncError };
   }
 
   static async deleteBook(bookId: string): Promise<boolean> {

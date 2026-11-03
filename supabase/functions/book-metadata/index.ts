@@ -64,10 +64,18 @@ serve(async (req: Request) => {
             publicationYear: pubYear,
             isbn10: item.identifiers?.isbn_10?.[0] || (cleanIsbn.length === 10 ? cleanIsbn : undefined),
             isbn13: item.identifiers?.isbn_13?.[0] || (cleanIsbn.length === 13 ? cleanIsbn : cleanIsbn),
-            description: typeof item.notes === "string" ? item.notes : undefined,
+            description:
+              typeof item.notes === "string"
+                ? item.notes
+                : typeof item.description === "object"
+                  ? item.description?.value
+                  : (item.description as string | undefined),
             pageCount: item.number_of_pages,
             coverUrl: item.cover?.large || item.cover?.medium || item.cover?.small,
-            categories: item.subjects?.slice(0, 5).map((s: { name: string }) => s.name) || [],
+            categories: item.subjects
+              ?.slice(0, 5)
+              .map((s: { name: string } | string) => (typeof s === "string" ? s : s.name))
+              .filter(Boolean) || [],
             source: "open_library",
           };
 

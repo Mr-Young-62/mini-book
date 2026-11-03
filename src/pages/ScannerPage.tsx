@@ -32,6 +32,8 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [metadata, setMetadata] = useState<ScannedBookMetadata | null>(null);
+  const [existingBook, setExistingBook] = useState<Book | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   // Physical inventory copy configuration
   const [copyCount, setCopyCount] = useState<number>(1);
@@ -58,6 +60,8 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
   const handleIsbnLookup = async (isbnToLookup: string) => {
     setLookupError(null);
     setSavedBook(null);
+    setSyncError(null);
+    setExistingBook(null);
 
     const cleaned = cleanIsbn(isbnToLookup);
     if (!isValidIsbn(cleaned)) {
@@ -72,6 +76,13 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
         setMetadata(res.metadata);
         if (!res.success && res.error) {
           setLookupError(res.error);
+        }
+        // Warn early if this ISBN is already in the catalog (copies will be appended)
+        try {
+          const alreadyInCatalog = await LibraryService.getBookByIsbn(cleaned);
+          setExistingBook(alreadyInCatalog);
+        } catch {
+          setExistingBook(null);
         }
       } else {
         setLookupError(res.error || 'Failed to retrieve book metadata.');
@@ -100,7 +111,9 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
 
       setSavedBook(result.book);
       setSavedCopiesCount(result.newCopies.length);
+      setSyncError(result.syncError || null);
       setMetadata(null);
+      setExistingBook(null);
       setIsbnInput('');
     } catch (err: any) {
       setLookupError(`Error saving book: ${err.message}`);
@@ -126,14 +139,19 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
         <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-emerald-950">
           <div className="flex items-center gap-2.5">
             <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-            <div>
-              <p className="text-xs font-bold">
-                Successfully Cataloged "{savedBook.title}"!
+          <div>
+            <p className="text-xs font-bold">
+              Successfully Cataloged "{savedBook.title}"!
+            </p>
+            <p className="text-[11px] text-emerald-800">
+              Created {savedCopiesCount} physical inventory copies with unique RDW codes on {shelfLocation}.
+            </p>
+            {syncError && (
+              <p className="mt-1 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                Saved locally, but cloud sync failed: {syncError}
               </p>
-              <p className="text-[11px] text-emerald-800">
-                Created {savedCopiesCount} physical inventory copies with unique RDW codes on {shelfLocation}.
-              </p>
-            </div>
+            )}
+          </div>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -244,6 +262,13 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                 </span>
               </div>
 
+              {existingBook && (
+                <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-900">
+                  <strong>"{existingBook.title}"</strong> is already in the catalog. Saving will add more
+                  physical copies to the existing record.
+                </div>
+              )}
+
               {/* Book Overview Preview */}
               <div className="flex gap-4">
                 <div className="w-20 aspect-2/3 rounded bg-[#F2EDE4] overflow-hidden shrink-0 border border-[#E5E0D8]">
@@ -271,6 +296,15 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                   />
                   <input
                     type="text"
+                    value={metadata.subtitle || ''}
+                    onChange={(e) =>
+                      setMetadata({ ...metadata, subtitle: e.target.value || undefined })
+                    }
+                    className="w-full text-xs text-[#7E6F64] italic border-b border-transparent hover:border-[#D4CDC3] focus:border-[#EA580C] focus:outline-hidden"
+                    placeholder="Subtitle"
+                  />
+                  <input
+                    type="text"
                     value={metadata.authors.join(', ')}
                     onChange={(e) =>
                       setMetadata({
@@ -288,7 +322,7 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
               </div>
 
               {/* Editable Bibliographic Details */}
-              <div className="grid grid-cols-2 gap-3 text-xs pt-2">
+              <div className="grid grid-cols-3 gap-3 text-xs pt-2">
                 <div>
                   <label className="block text-[11px] font-medium text-[#5A4D44] mb-1">
                     Publisher
@@ -303,7 +337,7 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                 </div>
                 <div>
                   <label className="block text-[11px] font-medium text-[#5A4D44] mb-1">
-                    Publication Year
+                    Published
                   </label>
                   <input
                     type="number"
@@ -315,6 +349,35 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                     placeholder="e.g. 2024"
                   />
                 </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-[#5A4D44] mb-1">
+                    Pages
+                  </label>
+                  <input
+                    type="number"
+                    value={metadata.pageCount || ''}
+                    onChange={(e) =>
+                      setMetadata({ ...metadata, pageCount: parseInt(e.target.value, 10) || undefined })
+                    }
+                    className="w-full px-2.5 py-1.5 bg-[#FAF8F5] border border-[#E5E0D8] rounded-md text-xs font-mono"
+                    placeholder="Pages"
+                  />
+                </div>
+              </div>
+
+              <div className="text-xs">
+                <label className="block text-[11px] font-medium text-[#5A4D44] mb-1">
+                  Description
+                </label>
+                <textarea
+                  value={metadata.description || ''}
+                  onChange={(e) =>
+                    setMetadata({ ...metadata, description: e.target.value || undefined })
+                  }
+                  rows={3}
+                  className="w-full px-2.5 py-1.5 bg-[#FAF8F5] border border-[#E5E0D8] rounded-md text-xs resize-y max-h-40"
+                  placeholder="Book synopsis"
+                />
               </div>
 
               <div>
@@ -327,6 +390,22 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                   onChange={(e) => setMetadata({ ...metadata, categories: [e.target.value] })}
                   className="w-full px-2.5 py-1.5 bg-[#FAF8F5] border border-[#E5E0D8] rounded-md text-xs"
                   placeholder="e.g. Computer Science"
+                />
+              </div>
+
+              <div className="text-xs">
+                <label className="block text-[11px] font-medium text-[#5A4D44] mb-1">
+                  Language
+                </label>
+                <input
+                  type="text"
+                  value={metadata.language || ''}
+                  onChange={(e) =>
+                    setMetadata({ ...metadata, language: e.target.value || undefined })
+                  }
+                  className="w-full px-2.5 py-1.5 bg-[#FAF8F5] border border-[#E5E0D8] rounded-md text-xs"
+                  placeholder="e.g. en / id"
+                  maxLength={10}
                 />
               </div>
 
