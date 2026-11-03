@@ -12,7 +12,7 @@ export interface CapacitorConfig {
 
 const config: CapacitorConfig = {
   appId: 'org.readowl.library',
-  appName: 'Readowl',
+  appName: 'Mini Book',
   webDir: 'dist',
   server: {
     androidScheme: 'https',

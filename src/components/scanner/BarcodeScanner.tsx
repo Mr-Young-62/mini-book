@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { BrowserMultiFormatReader, NotFoundException } from '@zxing/library';
+import { Capacitor } from '@capacitor/core';
 import {
   Camera,
   CameraOff,
@@ -149,7 +150,9 @@ export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onScan, isProces
       if (isDenied) {
         setIsPermissionDenied(true);
         setErrorMsg(
-          'Camera access was denied by your browser or sandbox permissions. You can retry permissions, upload a photo of the barcode, or enter the ISBN manually.'
+          Capacitor.isNativePlatform()
+            ? 'Camera permission was denied. Enable it in Android Settings > Apps > Readowl > Permissions, then retry.'
+            : 'Camera access was denied by your browser or sandbox permissions. You can retry permissions, upload a photo of the barcode, or enter the ISBN manually.'
         );
       } else {
         setErrorMsg(err.message || 'Unable to start camera.');
