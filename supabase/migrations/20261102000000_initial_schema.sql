@@ -1,4 +1,4 @@
--- Readowl Mini Digital Library Schema
+﻿-- Readowl Mini Digital Library Schema
 -- Initial Migration: Schema, Tables, Constraints, Indexes, Functions, and RLS Policies
 
 -- Enable UUID extension
@@ -9,7 +9,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS public.roles (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL UNIQUE,
     description TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 );
 
 CREATE TABLE IF NOT EXISTS public.user_roles (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
     role_id UUID NOT NULL REFERENCES public.roles(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -34,13 +34,13 @@ CREATE TABLE IF NOT EXISTS public.user_roles (
 );
 
 CREATE TABLE IF NOT EXISTS public.permissions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL UNIQUE,
     description TEXT
 );
 
 CREATE TABLE IF NOT EXISTS public.role_permissions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     role_id UUID NOT NULL REFERENCES public.roles(id) ON DELETE CASCADE,
     permission_id UUID NOT NULL REFERENCES public.permissions(id) ON DELETE CASCADE,
     UNIQUE(role_id, permission_id)
@@ -51,26 +51,26 @@ CREATE TABLE IF NOT EXISTS public.role_permissions (
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS public.publishers (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL UNIQUE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS public.authors (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS public.categories (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL UNIQUE,
     description TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS public.books (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     isbn_10 VARCHAR(10),
     isbn_13 VARCHAR(13) NOT NULL UNIQUE,
     title TEXT NOT NULL,
@@ -88,14 +88,14 @@ CREATE TABLE IF NOT EXISTS public.books (
 );
 
 CREATE TABLE IF NOT EXISTS public.book_authors (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     book_id UUID NOT NULL REFERENCES public.books(id) ON DELETE CASCADE,
     author_id UUID NOT NULL REFERENCES public.authors(id) ON DELETE CASCADE,
     UNIQUE(book_id, author_id)
 );
 
 CREATE TABLE IF NOT EXISTS public.book_categories (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     book_id UUID NOT NULL REFERENCES public.books(id) ON DELETE CASCADE,
     category_id UUID NOT NULL REFERENCES public.categories(id) ON DELETE CASCADE,
     UNIQUE(book_id, category_id)
@@ -115,7 +115,7 @@ CREATE TYPE copy_status_enum AS ENUM (
 );
 
 CREATE TABLE IF NOT EXISTS public.book_copies (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     book_id UUID NOT NULL REFERENCES public.books(id) ON DELETE CASCADE,
     inventory_code VARCHAR(50) NOT NULL UNIQUE,
     barcode VARCHAR(100),
@@ -139,7 +139,7 @@ CREATE TYPE membership_type_enum AS ENUM ('Standard', 'Student', 'Faculty', 'VIP
 CREATE TYPE member_status_enum AS ENUM ('Active', 'Suspended', 'Expired', 'Deactivated');
 
 CREATE TABLE IF NOT EXISTS public.members (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     member_code VARCHAR(50) NOT NULL UNIQUE,
     full_name TEXT NOT NULL,
     email TEXT NOT NULL UNIQUE,
@@ -161,7 +161,7 @@ CREATE TABLE IF NOT EXISTS public.members (
 CREATE TYPE borrow_status_enum AS ENUM ('Active', 'Completed', 'Overdue', 'Cancelled');
 
 CREATE TABLE IF NOT EXISTS public.borrow_transactions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     transaction_code VARCHAR(50) NOT NULL UNIQUE,
     member_id UUID NOT NULL REFERENCES public.members(id) ON DELETE RESTRICT,
     borrowed_at TIMESTAMPTZ DEFAULT NOW(),
@@ -173,7 +173,7 @@ CREATE TABLE IF NOT EXISTS public.borrow_transactions (
 );
 
 CREATE TABLE IF NOT EXISTS public.borrow_transaction_items (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     transaction_id UUID NOT NULL REFERENCES public.borrow_transactions(id) ON DELETE CASCADE,
     book_copy_id UUID NOT NULL REFERENCES public.book_copies(id) ON DELETE RESTRICT,
     returned_at TIMESTAMPTZ,
@@ -184,7 +184,7 @@ CREATE TABLE IF NOT EXISTS public.borrow_transaction_items (
 );
 
 CREATE TABLE IF NOT EXISTS public.book_returns (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     transaction_item_id UUID NOT NULL REFERENCES public.borrow_transaction_items(id) ON DELETE CASCADE,
     returned_at TIMESTAMPTZ DEFAULT NOW(),
     condition_on_return VARCHAR(50) DEFAULT 'Good',
@@ -198,7 +198,7 @@ CREATE TABLE IF NOT EXISTS public.book_returns (
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS public.acquisition_records (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     book_copy_id UUID NOT NULL REFERENCES public.book_copies(id) ON DELETE CASCADE,
     acquisition_date DATE DEFAULT CURRENT_DATE,
     acquisition_price NUMERIC(10,2) NOT NULL,
@@ -208,7 +208,7 @@ CREATE TABLE IF NOT EXISTS public.acquisition_records (
 );
 
 CREATE TABLE IF NOT EXISTS public.activity_logs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
     action VARCHAR(100) NOT NULL,
     entity_type VARCHAR(50) NOT NULL,
@@ -218,7 +218,7 @@ CREATE TABLE IF NOT EXISTS public.activity_logs (
 );
 
 CREATE TABLE IF NOT EXISTS public.settings (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     setting_key VARCHAR(100) NOT NULL UNIQUE,
     setting_value JSONB NOT NULL,
     updated_at TIMESTAMPTZ DEFAULT NOW()
