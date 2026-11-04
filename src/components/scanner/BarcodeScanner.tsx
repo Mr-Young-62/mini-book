@@ -1,467 +1,388 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Capacitor } from '@capacitor/core';
-import {
-  Camera,
-  CameraOff,
-  Flashlight,
-  RefreshCw,
-  Volume2,
-  VolumeX,
-  AlertCircle,
-  CheckCircle2,
-  Upload,
-  RotateCcw,
-  Image as ImageIcon,
-} from 'lucide-react';
-import { cleanIsbn, isValidIsbn, normalizeToIsbn13 } from '../../services/isbnValidator';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { BarcodeFormat, BrowserMultiFormatReader, DecodeHintType } from '@zxing/library';
+import { resolveScannedCode, type ResolvedCode } from '../../services/codeResolver';
 
-interface BarcodeScannerProps {
-  onScan: (isbn: string) => void;
+interface Props {
+  onDetected?: (result: ResolvedCode) => void;
+  onScan?: (rawText: string) => void;
+  onClose?: () => void;
+  active?: boolean;
   isProcessing?: boolean;
+  onResetScan?: () => void;
 }
 
-export const BarcodeScanner: React.FC<BarcodeScannerProps> = ({ onScan, isProcessing = false }) => {
+type Engine = 'native' | 'zxing';
+type ScanChoice = { rawValue: string; format: string; engine: Engine };
+type LastSeen = { text: string; count: number; at: number; firstSeen: number; format: string; engine: Engine };
+
+const FORMATS = [
+  BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.UPC_A, BarcodeFormat.UPC_E,
+  BarcodeFormat.CODE_128, BarcodeFormat.CODE_39, BarcodeFormat.CODE_93,
+  BarcodeFormat.ITF, BarcodeFormat.CODABAR,
+  BarcodeFormat.QR_CODE, BarcodeFormat.DATA_MATRIX,
+];
+
+const NATIVE_FORMATS = [
+  'ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'code_93', 'itf', 'codabar', 'qr_code', 'data_matrix',
+];
+
+function formatLabel(format: string) {
+  return format.toUpperCase().replace(/_/g, ' ');
+}
+
+export function BarcodeScanner({ onDetected, onScan, onClose, active = true, isProcessing = false, onResetScan }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const readerRef = useRef<any | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const readerRef = useRef<BrowserMultiFormatReader | null>(null);
+  const lastRef = useRef<LastSeen>({ text: '', count: 0, at: 0, firstSeen: 0, format: '', engine: 'zxing' });
+  const doneRef = useRef(false);
+  const [error, setError] = useState('');
+  const [torchOn, setTorchOn] = useState(false);
+  const [manual, setManual] = useState('');
+  const [hint, setHint] = useState('Arahkan kamera ke barcode / QR di buku');
+  const [rawValue, setRawValue] = useState('');
+  const [detectedFormat, setDetectedFormat] = useState('');
+  const [scanChoices, setScanChoices] = useState<ScanChoice[]>([]);
 
-  // Lazily load @zxing/library (~large dependency) so it does not bloat the initial bundle
-  const loadReader = async () => {
-    if (readerRef.current) return readerRef.current;
-    const zxing = await import('@zxing/library');
-    readerRef.current = new zxing.BrowserMultiFormatReader();
-    return readerRef.current;
-  };
-
-  const [hasCamera, setHasCamera] = useState<boolean>(true);
-  const [cameraActive, setCameraActive] = useState<boolean>(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [isPermissionDenied, setIsPermissionDenied] = useState<boolean>(false);
-  const [torchEnabled, setTorchEnabled] = useState<boolean>(false);
-  const [hasTorch, setHasTorch] = useState<boolean>(false);
-  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
-  const [availableDevices, setAvailableDevices] = useState<MediaDeviceInfo[]>([]);
-  const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
-  const [lastScannedCode, setLastScannedCode] = useState<string | null>(null);
-  const [isAnalyzingImage, setIsAnalyzingImage] = useState<boolean>(false);
-
-  // Play a pleasant chime upon scan
-  const playBeep = () => {
-    if (!soundEnabled) return;
-    try {
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(880, audioCtx.currentTime); // A5 note
-      osc.frequency.exponentialRampToValueAtTime(1320, audioCtx.currentTime + 0.12);
-      gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.start();
-      osc.stop(audioCtx.currentTime + 0.16);
-    } catch {
-      // AudioContext may be restricted before user gesture
-    }
-  };
-
-  // Initialize and list video devices
-  useEffect(() => {
-    loadReader();
-
-    if (navigator.mediaDevices?.enumerateDevices) {
-      navigator.mediaDevices
-        .enumerateDevices()
-        .then((devices) => {
-          const videoInputs = devices.filter((d) => d.kind === 'videoinput');
-          setAvailableDevices(videoInputs);
-          if (videoInputs.length > 0) {
-            // Prefer back camera if available
-            const backCamera = videoInputs.find(
-              (d) =>
-                d.label.toLowerCase().includes('back') ||
-                d.label.toLowerCase().includes('rear') ||
-                d.label.toLowerCase().includes('environment')
-            );
-            setSelectedDeviceId(backCamera?.deviceId || videoInputs[0].deviceId);
-          } else {
-            setHasCamera(false);
-          }
-        })
-        .catch(() => {
-          // In sandboxed iframes or restricted environments, enumeration may be silently blocked
-          setHasCamera(false);
-        });
-    } else {
-      setHasCamera(false);
-    }
-
-    return () => {
-      stopCamera();
-    };
+  const resetScanState = useCallback(() => {
+    doneRef.current = false;
+    lastRef.current = { text: '', count: 0, at: 0, firstSeen: 0, format: '', engine: 'zxing' };
+    setRawValue('');
+    setDetectedFormat('');
+    setScanChoices([]);
+    setHint('Arahkan kamera ke barcode / QR di buku');
+    setError('');
   }, []);
 
-  const startCamera = async (deviceId?: string) => {
-    if (!videoRef.current || !readerRef.current) return;
-    stopCamera();
-    setErrorMsg(null);
-    setIsPermissionDenied(false);
+  const emit = useCallback((raw: string, format?: string, engine: Engine = 'zxing') => {
+    const value = (raw || '').trim();
+    if (!value || doneRef.current || isProcessing) return false;
 
-    const devId = deviceId || selectedDeviceId;
+    const resolved = resolveScannedCode(value);
+    setRawValue(value);
+    setDetectedFormat(format ? formatLabel(format) : 'UNKNOWN');
 
-    try {
-      setCameraActive(true);
-      const reader = await loadReader();
-      await reader.decodeFromVideoDevice(
-        devId ? devId : null,
-        videoRef.current,
-        (result: any, err: any) => {
-          if (result) {
-            const raw = result.getText();
-            const cleaned = cleanIsbn(raw);
+    if (resolved.kind === 'invalid_isbn') {
+      setHint(`Kode ${resolved.digits} terbaca, tetapi checksum ISBN tidak valid. Coba dekatkan / luruskan dan pindai ulang.`);
+      onScan?.(value);
+      onDetected?.(resolved);
+      return true;
+    }
 
-            if (isValidIsbn(cleaned)) {
-              const normalized = normalizeToIsbn13(cleaned);
-              setLastScannedCode(normalized);
-              playBeep();
-              onScan(normalized);
-            } else if (raw.length >= 8) {
-              setLastScannedCode(raw);
-              playBeep();
-              onScan(raw);
-            }
+    if (resolved.kind === 'unknown') {
+      setHint(`Kode berhasil dibaca: ${value}. Kode ini bukan ISBN maupun kode inventaris. Gunakan kode ini untuk pemeriksaan manual.`);
+      onScan?.(value);
+      onDetected?.(resolved);
+      return true;
+    }
+
+    doneRef.current = true;
+    navigator.vibrate?.(60);
+    onScan?.(value);
+    onDetected?.(resolved);
+    if (onResetScan) onResetScan();
+    return true;
+  }, [isProcessing, onDetected, onResetScan, onScan]);
+
+  const handleDecoded = useCallback((text: string, format: string, engine: Engine) => {
+    const value = text.trim();
+    if (!value || doneRef.current || isProcessing) return;
+
+    const now = Date.now();
+    const last = lastRef.current;
+    if (last.text && last.text.toLowerCase() === value.toLowerCase()) {
+      last.count += 1;
+      last.at = now;
+      last.format = format;
+      last.engine = engine;
+      if (last.count >= 2 && now - last.firstSeen <= 6000) {
+        emit(value, format, engine);
+      }
+      return;
+    }
+
+    if (!last.text || now - last.at > 3000) {
+      lastRef.current = { text: value, count: 1, at: now, firstSeen: now, format, engine };
+      return;
+    }
+
+    lastRef.current = { text: value, count: last.count + 1, at: now, firstSeen: last.firstSeen || now, format, engine };
+    if (lastRef.current.count >= 2 && now - lastRef.current.firstSeen <= 8000) {
+      emit(value, format, engine);
+    }
+  }, [emit, isProcessing]);
+
+  useEffect(() => {
+    if (!active) return;
+    resetScanState();
+
+    let cancelled = false;
+    let stream: MediaStream | null = null;
+    let rafId = 0;
+    let reader: BrowserMultiFormatReader | null = null;
+
+    const stopStream = () => {
+      cancelAnimationFrame(rafId);
+      reader?.reset();
+      readerRef.current = null;
+      stream?.getTracks().forEach((track) => track.stop());
+      stream = null;
+    };
+
+    const startZxing = async (video: HTMLVideoElement) => {
+      const hints = new Map<DecodeHintType, unknown>();
+      hints.set(DecodeHintType.POSSIBLE_FORMATS, FORMATS);
+      hints.set(DecodeHintType.TRY_HARDER, true);
+      const zxingReader = new BrowserMultiFormatReader(hints, 100);
+      reader = zxingReader;
+      readerRef.current = zxingReader;
+
+      try {
+        await zxingReader.decodeFromConstraints(
+          {
+            audio: false,
+            video: {
+              facingMode: { ideal: 'environment' },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+              advanced: [{ focusMode: 'continuous' } as any, { zoom: 1.0 } as any],
+            },
+          },
+          video,
+          (result) => {
+            if (!result || cancelled || doneRef.current || isProcessing) return;
+            const fmt = result.getBarcodeFormat();
+            handleDecoded(result.getText(), fmt.toString(), 'zxing');
           }
-          if (err && err.name !== 'NotFoundException') {
-            // Frame misses are normal
+        );
+      } catch (e: any) {
+        if (!cancelled && !doneRef.current) {
+          setError(e?.name === 'NotAllowedError'
+            ? 'Izin kamera ditolak. Aktifkan izin kamera di pengaturan browser.'
+            : `Kamera gagal dibuka: ${e?.message || e}`);
+        }
+      }
+    };
+
+    async function start() {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setError('Kamera tidak tersedia. Buka lewat HTTPS (atau localhost) dan izinkan akses kamera.');
+        return;
+      }
+
+      const video = videoRef.current;
+      if (!video) return;
+
+      const constraints: MediaStreamConstraints = {
+        audio: false,
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          advanced: [{ focusMode: 'continuous' } as any, { zoom: 1.0 } as any],
+        },
+      };
+
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        video.srcObject = stream;
+        await video.play();
+
+        const track = stream.getVideoTracks()[0];
+        if (track && 'getCapabilities' in track) {
+          const capabilities = track.getCapabilities?.() as any;
+          if (capabilities?.focusMode) {
+            await track.applyConstraints({ advanced: [{ focusMode: 'continuous' } as any] }).catch(() => undefined);
+          }
+          if (capabilities?.torch) {
+            await track.applyConstraints({ advanced: [{ torch: torchOn } as any] }).catch(() => undefined);
           }
         }
-      );
 
-      // Check stream capabilities for torch
-      const stream = videoRef.current.srcObject as MediaStream;
-      streamRef.current = stream;
-      const track = stream?.getVideoTracks()[0];
-      if (track) {
-        const capabilities = (track.getCapabilities ? track.getCapabilities() : {}) as any;
-        setHasTorch(Boolean(capabilities.torch));
-      }
-    } catch (err: any) {
-      setCameraActive(false);
-      const isDenied =
-        err.name === 'NotAllowedError' ||
-        err.name === 'PermissionDeniedError' ||
-        (typeof err.message === 'string' && err.message.toLowerCase().includes('permission'));
+        const Native = (window as any).BarcodeDetector;
+        if (typeof Native === 'function') {
+          try {
+            const supported: string[] = await Native.getSupportedFormats?.() || [];
+            const supportedFormats = NATIVE_FORMATS.filter((format) => supported.includes(format));
+            if (supportedFormats.length > 0) {
+              const detector = new Native({ formats: supportedFormats });
+              const tick = async () => {
+                if (cancelled || doneRef.current || isProcessing) return;
+                try {
+                  const codes = await detector.detect(video);
+                  if (Array.isArray(codes) && codes.length > 0) {
+                    const first = codes[0];
+                    handleDecoded(first.rawValue, first.format || 'UNKNOWN', 'native');
+                  }
+                } catch {
+                  await startZxing(video);
+                  return;
+                }
 
-      if (isDenied) {
-        setIsPermissionDenied(true);
-        setErrorMsg(
-          Capacitor.isNativePlatform()
-            ? 'Camera permission was denied. Enable it in Android Settings > Apps > Readowl > Permissions, then retry.'
-            : 'Camera access was denied by your browser or sandbox permissions. You can retry permissions, upload a photo of the barcode, or enter the ISBN manually.'
-        );
-      } else {
-        setErrorMsg(err.message || 'Unable to start camera.');
-      }
-    }
-  };
+                if (!cancelled && !doneRef.current && !isProcessing) {
+                  rafId = requestAnimationFrame(tick);
+                }
+              };
 
-  const stopCamera = () => {
-    if (readerRef.current) {
-      readerRef.current.reset();
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
-    setCameraActive(false);
-    setTorchEnabled(false);
-  };
+              tick();
+              return;
+            }
+          } catch {
+            // Fallback immediately to ZXing instead of leaving the scanner dead.
+          }
+        }
 
-  const toggleTorch = async () => {
-    if (!streamRef.current) return;
-    const track = streamRef.current.getVideoTracks()[0];
-    if (track) {
-      try {
-        const nextState = !torchEnabled;
-        await (track as any).applyConstraints({
-          advanced: [{ torch: nextState }],
-        });
-        setTorchEnabled(nextState);
-      } catch {
-        // Torch not supported
+        await startZxing(video);
+      } catch (e: any) {
+        setError(e?.name === 'NotAllowedError'
+          ? 'Izin kamera ditolak. Aktifkan izin kamera di pengaturan browser.'
+          : `Kamera gagal dibuka: ${e?.message || e}`);
       }
     }
-  };
 
-  const switchCamera = (devId: string) => {
-    setSelectedDeviceId(devId);
-    if (cameraActive) {
-      startCamera(devId);
+    start();
+    return () => {
+      cancelled = true;
+      stopStream();
+    };
+  }, [active, handleDecoded, isProcessing, resetScanState, torchOn]);
+
+  async function toggleTorch() {
+    const video = videoRef.current;
+    const track = (video?.srcObject as MediaStream | null)?.getVideoTracks()[0];
+    try {
+      if (track && 'applyConstraints' in track) {
+        const next = !torchOn;
+        await track.applyConstraints({ advanced: [{ torch: next } as any] } as any);
+        setTorchOn(next);
+        setHint(next ? 'Flashlight aktif' : 'Flashlight dimatikan');
+        return;
+      }
+      setHint('Senter tidak didukung perangkat ini');
+    } catch {
+      setHint('Senter tidak didukung perangkat ini');
     }
-  };
+  }
 
-  // Upload an image file of a barcode or book cover
-  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  async function onPickImage(file?: File) {
     if (!file) return;
 
-    setErrorMsg(null);
+    const objectUrl = URL.createObjectURL(file);
     try {
-      setIsAnalyzingImage(true);
-      const reader = await loadReader();
-      const objectUrl = URL.createObjectURL(file);
-      const img = new Image();
+      const image = new Image();
+      image.src = objectUrl;
+      await image.decode();
 
-      img.onload = async () => {
+      const Native = (window as any).BarcodeDetector;
+      const imageResults: ScanChoice[] = [];
+
+      if (typeof Native === 'function') {
         try {
-          const result = await reader.decodeFromImageElement(img);
-          URL.revokeObjectURL(objectUrl);
-          setIsAnalyzingImage(false);
-
-          if (result) {
-            const raw = result.getText();
-            const cleaned = cleanIsbn(raw);
-
-            if (isValidIsbn(cleaned)) {
-              const normalized = normalizeToIsbn13(cleaned);
-              setLastScannedCode(normalized);
-              playBeep();
-              onScan(normalized);
-            } else {
-              setLastScannedCode(raw);
-              playBeep();
-              onScan(raw);
+          const supported: string[] = await Native.getSupportedFormats?.() || [];
+          const supportedFormats = NATIVE_FORMATS.filter((format) => supported.includes(format));
+          if (supportedFormats.length > 0) {
+            const detector = new Native({ formats: supportedFormats });
+            const codes = await detector.detect(image);
+            for (const code of codes || []) {
+              imageResults.push({ rawValue: code.rawValue, format: code.format || 'UNKNOWN', engine: 'native' });
             }
           }
         } catch {
-          URL.revokeObjectURL(objectUrl);
-          setIsAnalyzingImage(false);
-          setErrorMsg(
-            'No barcode detected in the uploaded image. Please ensure the barcode is clearly visible, or enter the ISBN digits directly.'
-          );
+          // continue to ZXing fallback below
         }
-      };
+      }
 
-      img.onerror = () => {
-        URL.revokeObjectURL(objectUrl);
-        setIsAnalyzingImage(false);
-        setErrorMsg('Could not read the uploaded image file.');
-      };
+      if (imageResults.length === 0) {
+        const hints = new Map<DecodeHintType, unknown>();
+        hints.set(DecodeHintType.POSSIBLE_FORMATS, FORMATS);
+        hints.set(DecodeHintType.TRY_HARDER, true);
+        const reader = new BrowserMultiFormatReader(hints, 100);
+        const result = await reader.decodeFromImageUrl(objectUrl);
+        imageResults.push({ rawValue: result.getText(), format: result.getBarcodeFormat().toString(), engine: 'zxing' });
+      }
 
-      img.src = objectUrl;
+      if (imageResults.length === 1) {
+        emit(imageResults[0].rawValue, imageResults[0].format, imageResults[0].engine);
+        return;
+      }
+
+      if (imageResults.length > 1) {
+        setScanChoices(imageResults);
+        setHint('Beberapa kode ditemukan di foto. Pilih kode yang benar.');
+      } else {
+        setHint('Tidak ada barcode/QR terbaca di foto. Pastikan terang & tidak buram.');
+      }
     } catch {
-      setIsAnalyzingImage(false);
-      setErrorMsg('Error analyzing barcode image.');
+      setHint('Tidak ada barcode/QR terbaca di foto. Pastikan terang & tidak buram.');
     } finally {
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      URL.revokeObjectURL(objectUrl);
     }
+  }
+
+  const chooseImageResult = (choice: ScanChoice) => {
+    setScanChoices([]);
+    emit(choice.rawValue, choice.format, choice.engine);
   };
 
   return (
-    <div className="bg-[#FAF8F5] border border-[#E5E0D8] rounded-xl overflow-hidden p-4">
-      {/* Hidden file input for uploading barcode photos */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="hidden"
-        onChange={handleImageFileChange}
-      />
-
-      {/* Viewport Frame */}
-      <div className="relative aspect-video max-w-2xl mx-auto bg-[#1C1613] rounded-lg overflow-hidden shadow-inner flex items-center justify-center">
-        <video
-          ref={videoRef}
-          className={`w-full h-full object-cover transition-opacity duration-300 ${
-            cameraActive ? 'opacity-100' : 'opacity-0 hidden'
-          }`}
-          playsInline
-          muted
-        />
-
-        {!cameraActive && (
-          <div className="p-8 text-center text-[#E5E0D8]">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-white/10 flex items-center justify-center text-[#F97316]">
-              <Camera className="w-8 h-8" />
-            </div>
-            <h4 className="text-base font-semibold text-white mb-1">
-              {isPermissionDenied ? 'Camera Access Restricted' : 'Camera Scanner Ready'}
-            </h4>
-            <p className="text-xs text-[#A89F91] max-w-xs mx-auto mb-5">
-              {isPermissionDenied
-                ? 'Camera access is blocked by browser or iframe policy. You can retry permissions or upload a barcode photo.'
-                : 'Align the ISBN barcode on the book cover inside the reticle frame.'}
-            </p>
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              <button
-                type="button"
-                onClick={() => startCamera()}
-                disabled={isProcessing || isAnalyzingImage}
-                className="px-5 py-2.5 bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-semibold rounded-lg shadow-sm transition-colors whitespace-nowrap"
-              >
-                {isPermissionDenied ? 'Retry Camera Permission' : 'Start Live Camera'}
-              </button>
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isProcessing || isAnalyzingImage}
-                className="px-4 py-2.5 bg-white/15 hover:bg-white/25 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap flex items-center gap-1.5"
-              >
-                <Upload className="w-3.5 h-3.5" />
-                <span>Upload Barcode Photo</span>
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Reticle Guide & Scanner Laser Overlay */}
-        {cameraActive && (
-          <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center p-6">
-            <div className="relative w-64 sm:w-80 h-40 border-2 border-[#EA580C]/80 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.55)]">
-              {/* Corner targeting indicators */}
-              <div className="absolute -top-1 -left-1 w-4 h-4 border-t-2 border-l-2 border-white" />
-              <div className="absolute -top-1 -right-1 w-4 h-4 border-t-2 border-r-2 border-white" />
-              <div className="absolute -bottom-1 -left-1 w-4 h-4 border-b-2 border-l-2 border-white" />
-              <div className="absolute -bottom-1 -right-1 w-4 h-4 border-b-2 border-r-2 border-white" />
-
-              {/* Scanning red/orange laser beam animation */}
-              <div className="w-full h-0.5 bg-gradient-to-r from-transparent via-[#EA580C] to-transparent shadow-[0_0_8px_#EA580C] animate-pulse absolute top-1/2 -translate-y-1/2" />
-            </div>
-            <span className="mt-3 text-[11px] font-medium text-white/90 bg-black/60 px-3 py-1 rounded backdrop-blur-xs">
-              Point camera at ISBN / EAN-13 barcode
-            </span>
-          </div>
-        )}
-
-        {(isProcessing || isAnalyzingImage) && (
-          <div className="absolute inset-0 bg-black/75 flex flex-col items-center justify-center backdrop-blur-xs z-10">
-            <RefreshCw className="w-7 h-7 text-[#EA580C] animate-spin mb-3" />
-            <p className="text-white text-sm font-semibold">
-              {isAnalyzingImage ? 'Decoding Barcode from Image...' : 'Querying Metadata APIs...'}
-            </p>
-            <p className="text-[#A89F91] text-xs">
-              {isAnalyzingImage ? 'Detecting barcode patterns' : 'Checking Open Library & Google Books'}
-            </p>
-          </div>
-        )}
+    <div className="flex flex-col gap-3">
+      <div className="relative overflow-hidden rounded-xl bg-black aspect-[4/3]">
+        <video ref={videoRef} className="h-full w-full object-cover" playsInline muted />
+        <div className="pointer-events-none absolute inset-x-6 top-1/2 h-0.5 -translate-y-1/2 bg-red-500/80" />
       </div>
-
-      {/* Camera Controls Toolbar */}
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs border-t border-[#E5E0D8] pt-3">
-        <div className="flex flex-wrap items-center gap-2">
-          {cameraActive ? (
-            <button
-              type="button"
-              onClick={stopCamera}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#D4CDC3] bg-white text-[#4A3E35] hover:bg-[#F5F2EB] font-medium transition-colors"
-            >
-              <CameraOff className="w-3.5 h-3.5" />
-              <span>Stop Camera</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => startCamera()}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#EA580C] text-white hover:bg-[#C2410C] font-medium transition-colors"
-            >
-              <Camera className="w-3.5 h-3.5" />
-              <span>Open Camera</span>
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#D4CDC3] bg-white text-[#4A3E35] hover:bg-[#F5F2EB] font-medium transition-colors"
-            title="Upload an image file containing a book barcode"
-          >
-            <ImageIcon className="w-3.5 h-3.5 text-[#EA580C]" />
-            <span>Upload Photo</span>
-          </button>
-
-          {availableDevices.length > 1 && (
-            <select
-              value={selectedDeviceId}
-              onChange={(e) => switchCamera(e.target.value)}
-              className="px-2.5 py-1.5 rounded-lg border border-[#D4CDC3] bg-white text-[#4A3E35] text-xs"
-            >
-              {availableDevices.map((dev, idx) => (
-                <option key={dev.deviceId} value={dev.deviceId}>
-                  {dev.label || `Camera ${idx + 1}`}
-                </option>
-              ))}
-            </select>
-          )}
-
-          {hasTorch && cameraActive && (
-            <button
-              type="button"
-              onClick={toggleTorch}
-              className={`p-1.5 rounded-lg border transition-colors ${
-                torchEnabled
-                  ? 'bg-[#EA580C] text-white border-[#EA580C]'
-                  : 'bg-white text-[#4A3E35] border-[#D4CDC3]'
-              }`}
-              title="Toggle Flashlight"
-            >
-              <Flashlight className="w-3.5 h-3.5" />
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={() => setSoundEnabled(!soundEnabled)}
-            className="p-1.5 rounded-lg border border-[#D4CDC3] bg-white text-[#4A3E35] hover:bg-[#F5F2EB] transition-colors"
-            title={soundEnabled ? 'Mute Beep' : 'Enable Beep'}
-          >
-            {soundEnabled ? (
-              <Volume2 className="w-3.5 h-3.5" />
-            ) : (
-              <VolumeX className="w-3.5 h-3.5 text-slate-400" />
-            )}
-          </button>
+      {error ? <p className="text-sm text-red-600">{error}</p> : <p className="text-sm text-gray-600">{hint}</p>}
+      {rawValue && (
+        <div className="rounded-lg border border-[#E5E0D8] bg-[#FAF8F5] p-2 text-xs">
+          <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide text-[#7E6F64]">
+            <span>Terakhir dibaca</span>
+            <span>{detectedFormat || 'UNKNOWN'}</span>
+          </div>
+          <div className="mt-1 break-all font-mono text-[#2C221E]">{rawValue}</div>
         </div>
-
-        {lastScannedCode && (
-          <div className="flex items-center gap-1.5 text-xs text-[#2C221E] font-mono tabular-nums bg-white px-2.5 py-1 rounded border border-[#E5E0D8]">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-            <span className="text-[#6B5E55]">Detected:</span>
-            <span className="font-semibold">{lastScannedCode}</span>
-          </div>
-        )}
-      </div>
-
-      {errorMsg && (
-        <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2 text-xs text-amber-900">
-          <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-          <div className="flex-1">
-            <p>{errorMsg}</p>
-            {isPermissionDenied && (
-              <div className="mt-2 flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => startCamera()}
-                  className="px-2.5 py-1 bg-amber-200/80 hover:bg-amber-300 text-amber-900 rounded font-semibold text-[11px] inline-flex items-center gap-1"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                  <span>Retry Camera</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="px-2.5 py-1 bg-white border border-amber-300 hover:bg-amber-100/50 text-amber-900 rounded font-semibold text-[11px] inline-flex items-center gap-1"
-                >
-                  <Upload className="w-3 h-3" />
-                  <span>Upload Barcode Photo</span>
-                </button>
-              </div>
-            )}
+      )}
+      {scanChoices.length > 0 && (
+        <div className="rounded-lg border border-[#E5E0D8] bg-[#FAF8F5] p-2 text-xs">
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[#7E6F64]">Pilih kode dari foto</div>
+          <div className="space-y-2">
+            {scanChoices.map((choice, index) => (
+              <button
+                key={`${choice.rawValue}-${index}`}
+                type="button"
+                onClick={() => chooseImageResult(choice)}
+                className="w-full rounded-md border border-[#E5E0D8] bg-white px-2 py-1.5 text-left font-mono text-[11px] hover:border-[#EA580C]"
+              >
+                {choice.format} · {choice.rawValue}
+              </button>
+            ))}
           </div>
         </div>
       )}
+      <div className="flex flex-wrap gap-2">
+        <button type="button" onClick={toggleTorch} className="rounded-lg border px-3 py-2 text-sm">
+          {torchOn ? 'Matikan senter' : 'Senter'}
+        </button>
+        <button type="button" onClick={resetScanState} className="rounded-lg border px-3 py-2 text-sm">
+          Reset scanner
+        </button>
+        <label className="cursor-pointer rounded-lg border px-3 py-2 text-sm">
+          Scan dari foto
+          <input type="file" accept="image/*" capture="environment" className="hidden"
+            onChange={(e) => onPickImage(e.target.files?.[0])} />
+        </label>
+        {onClose && <button type="button" onClick={onClose} className="rounded-lg border px-3 py-2 text-sm">Tutup</button>}
+      </div>
+      <div className="flex gap-2">
+        <input value={manual} onChange={(e) => setManual(e.target.value)} placeholder="Ketik ISBN / kode manual"
+          className="flex-1 rounded-lg border px-3 py-2 text-sm" inputMode="text" />
+        <button type="button" className="rounded-lg bg-black px-3 py-2 text-sm text-white"
+          onClick={() => { resetScanState(); emit(manual); }}>Cari</button>
+      </div>
     </div>
   );
-};
+}
+
+export default BarcodeScanner;

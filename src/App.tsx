@@ -12,6 +12,7 @@ import { UserRole } from './types/library';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
+  const [dashboardView, setDashboardView] = useState<'shelves' | 'all-books'>('shelves');
   const [userRole, setUserRole] = useState<UserRole>('Administrator');
   const [initialBorrowCopyId, setInitialBorrowCopyId] = useState<string | undefined>(undefined);
   const [appRefreshKey, setAppRefreshKey] = useState<number>(0);
@@ -33,6 +34,8 @@ export default function App() {
     <MainLayout
       key={appRefreshKey}
       currentTab={currentTab}
+      dashboardView={dashboardView}
+      onChangeDashboardView={setDashboardView}
       onSelectTab={(tab) => {
         setInitialBorrowCopyId(undefined);
         setCurrentTab(tab);
@@ -44,6 +47,8 @@ export default function App() {
       {currentTab === 'dashboard' && (
         <DashboardPage
           userRole={userRole}
+          dashboardView={dashboardView}
+          onDashboardViewChange={setDashboardView}
           onNavigate={(tab) => {
             setInitialBorrowCopyId(undefined);
             setCurrentTab(tab);

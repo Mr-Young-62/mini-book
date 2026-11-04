@@ -20,6 +20,54 @@ import { LibraryService } from '../services/libraryService';
 import { Book, BookCopy, UserRole } from '../types/library';
 import { formatIsbn } from '../services/isbnValidator';
 
+const normalizeCoverUrl = (url?: string): string | undefined => {
+  if (!url) return undefined;
+  const value = String(url).trim();
+  if (!value) return undefined;
+  if (value.startsWith('//')) return `https:${value}`;
+  return value.replace(/^http:\/\//i, 'https://');
+};
+
+const BookCoverThumbnail: React.FC<{
+  coverUrl?: string;
+  title: string;
+  author?: string;
+  className?: string;
+  fit?: 'cover' | 'contain';
+}> = ({ coverUrl, title, author, className = '', fit = 'cover' }) => {
+  const [src, setSrc] = useState<string | undefined>(normalizeCoverUrl(coverUrl));
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setSrc(normalizeCoverUrl(coverUrl));
+    setFailed(false);
+  }, [coverUrl]);
+
+  if (!src || failed) {
+    return (
+      <div className={`flex h-full w-full items-center justify-center bg-gradient-to-br from-[#EAE5DE] via-[#F7F3EE] to-[#D8C9B4] text-[#4F3D32] ${className}`}>
+        <div className="flex max-w-[80%] flex-col items-center justify-center text-center">
+          <BookOpen className="mb-2 h-6 w-6 text-[#8C7E72]" />
+          <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#8C7E72]">Cover</div>
+          <div className="mt-1 line-clamp-3 text-[10px] font-semibold leading-tight">{title || 'No cover'}</div>
+          {author && <div className="mt-1 text-[8px] text-[#7E6F64]">{author}</div>}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt={title}
+      referrerPolicy="no-referrer"
+      loading="lazy"
+      className={`${className} h-full w-full ${fit === 'contain' ? 'object-contain' : 'object-cover'}`}
+      onError={() => setFailed(true)}
+    />
+  );
+};
+
 interface BookshelfPageProps {
   userRole: UserRole;
   onNavigateToBorrow: (copyId?: string) => void;
@@ -307,30 +355,12 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
                       >
                         {/* Book 3D spine & cover effect */}
                         <div className="relative aspect-2/3 w-full rounded-xs overflow-hidden shadow-[3px_6px_14px_rgba(44,34,30,0.25)] border-r-2 border-[#1C1613]/30 bg-[#3E322B]">
-                          {book.cover_url ? (
-                            <img
-                              src={book.cover_url}
-                              alt={book.title}
-                              referrerPolicy="no-referrer"
-                              className="w-full h-full object-cover group-hover:brightness-105 transition-all"
-                              onError={(e) => {
-                                (e.target as HTMLElement).style.display = 'none';
-                              }}
-                            />
-                          ) : null}
-
-                          {/* Fallback book design if image fails */}
-                          <div className="absolute inset-0 p-2.5 flex flex-col justify-between bg-gradient-to-br from-[#4A3B34] to-[#241A16] text-white">
-                            <div>
-                              <div className="text-[10px] uppercase tracking-wider text-[#FDBA74] font-semibold line-clamp-1">
-                                {book.authors[0]?.name || 'Author'}
-                              </div>
-                              <h4 className="text-xs font-bold leading-tight line-clamp-3 mt-1 font-sans">
-                                {book.title}
-                              </h4>
-                            </div>
-                            <span className="text-[9px] font-mono text-[#D7CEC7]">{book.publication_year}</span>
-                          </div>
+                          <BookCoverThumbnail
+                            coverUrl={book.cover_url}
+                            title={book.title}
+                            author={book.authors?.[0]?.name}
+                            className="group-hover:brightness-105 transition-all"
+                          />
 
                           {/* Status ribbon overlay */}
                           <div className="absolute top-1.5 right-1.5">
@@ -384,14 +414,12 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
               >
                 <div>
                   <div className="aspect-2/3 rounded-lg overflow-hidden bg-[#F0ECE4] mb-2.5 relative shadow-2xs">
-                    {book.cover_url && (
-                      <img
-                        src={book.cover_url}
-                        alt={book.title}
-                        referrerPolicy="no-referrer"
-                        className="w-full h-full object-cover group-hover:scale-103 transition-transform"
-                      />
-                    )}
+                    <BookCoverThumbnail
+                      coverUrl={book.cover_url}
+                      title={book.title}
+                      author={book.authors?.[0]?.name}
+                      className="group-hover:scale-103 transition-transform"
+                    />
                     <span
                       className={`absolute top-2 right-2 text-[10px] font-semibold px-2 py-0.5 rounded-sm shadow-2xs ${
                         availableCount > 0
@@ -519,14 +547,12 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
               {/* Split Top: Cover + Info */}
               <div className="flex flex-col sm:flex-row gap-5">
                 <div className="w-28 sm:w-36 aspect-2/3 rounded-lg overflow-hidden bg-[#F2EDE4] shrink-0 shadow-sm border border-[#E5E0D8]">
-                  {activeBook.cover_url && (
-                    <img
-                      src={activeBook.cover_url}
-                      alt={activeBook.title}
-                      referrerPolicy="no-referrer"
-                      className="w-full h-full object-cover"
-                    />
-                  )}
+                  <BookCoverThumbnail
+                    coverUrl={activeBook.cover_url}
+                    title={activeBook.title}
+                    author={activeBook.authors?.[0]?.name}
+                    className="object-cover"
+                  />
                 </div>
 
                 <div className="flex-1 space-y-2">

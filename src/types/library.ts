@@ -147,6 +147,7 @@ export interface ScannedBookMetadata {
   language?: string;
   pageCount?: number;
   coverUrl?: string;
+  alternateCoverUrl?: string;
   categories: string[];
-  source: 'open_library' | 'google_books' | 'manual' | 'local_database';
+  source: 'open_library' | 'google_books' | 'manual' | 'local_database' | 'merged';
 }

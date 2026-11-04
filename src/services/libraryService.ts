@@ -86,6 +86,14 @@ function setLocal<T>(key: string, val: T): void {
   }
 }
 
+function normalizeCoverUrl(url?: string): string | undefined {
+  if (!url) return undefined;
+  const value = String(url).trim();
+  if (!value) return undefined;
+  if (value.startsWith('//')) return `https:${value}`;
+  return value.replace(/^http:\/\//i, 'https://');
+}
+
 export class LibraryService {
   // --------------------------------------------------------------------------
   // Books & Bibliographic Data
@@ -169,6 +177,7 @@ export class LibraryService {
     const isbn13 = normalizeToIsbn13(metadata.isbn13);
     const books = getLocal<Book[]>(STORAGE_KEY_BOOKS, initialBooks);
     const copies = getLocal<BookCopy[]>(STORAGE_KEY_COPIES, initialCopies);
+    const normalizedCover = normalizeCoverUrl(metadata.coverUrl);
 
     // Check if book already exists
     let existingBook = books.find((b) => b.isbn_13 === isbn13);
@@ -186,13 +195,20 @@ export class LibraryService {
         language: metadata.language || 'en',
         page_count: metadata.pageCount,
         publisher: metadata.publisher ? { id: crypto.randomUUID(), name: metadata.publisher } : undefined,
-        cover_url: metadata.coverUrl,
+        cover_url: normalizedCover,
         metadata_source: metadata.source,
         created_at: new Date().toISOString(),
         authors: metadata.authors.filter(Boolean).map((name) => ({ id: crypto.randomUUID(), name })),
         categories: metadata.categories.filter(Boolean).map((name) => ({ id: crypto.randomUUID(), name })),
       };
       books.unshift(existingBook);
+      setLocal(STORAGE_KEY_BOOKS, books);
+    } else if (!existingBook.cover_url && normalizedCover) {
+      existingBook.cover_url = normalizedCover;
+      existingBook.updated_at = new Date().toISOString();
+      existingBook.metadata_source = existingBook.metadata_source || metadata.source;
+      const idx = books.findIndex((b) => b.id === existingBook?.id);
+      if (idx >= 0) books[idx] = existingBook;
       setLocal(STORAGE_KEY_BOOKS, books);
     }
 
@@ -255,7 +271,7 @@ export class LibraryService {
               publication_year: existingBook.publication_year,
               language: existingBook.language,
               page_count: existingBook.page_count,
-              cover_url: existingBook.cover_url,
+              cover_url: existingBook.cover_url || normalizedCover,
               metadata_source: existingBook.metadata_source,
             },
             { onConflict: 'isbn_13' }
