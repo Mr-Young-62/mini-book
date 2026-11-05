@@ -18,13 +18,9 @@ import { BookCopy, CopyStatus, UserRole } from '../types/library';
 
 interface InventoryPageProps {
   userRole: UserRole;
-  onNavigateToBorrow: (copyId: string) => void;
 }
 
-export const InventoryPage: React.FC<InventoryPageProps> = ({
-  userRole,
-  onNavigateToBorrow,
-}) => {
+export const InventoryPage: React.FC<InventoryPageProps> = ({ userRole }) => {
   const [copies, setCopies] = useState<BookCopy[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -66,7 +62,6 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
     const matchesStatus =
       statusFilter === 'all' ||
       (statusFilter === 'Available' && copy.status === 'Available') ||
-      (statusFilter === 'Borrowed' && copy.status === 'Borrowed') ||
       (statusFilter === 'Maintenance' && (copy.status === 'Maintenance' || copy.status === 'Damaged'));
 
     return matchesSearch && matchesStatus;
@@ -99,7 +94,7 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `readowl_inventory_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute('download', `meeliefont_inventory_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -110,11 +105,8 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#EAE5DE] pb-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#2C221E] font-sans">
-            Physical Inventory Management
-          </h1>
           <p className="text-xs text-[#7E6F64]">
-            Every physical copy has an individual barcode, shelf rack location, condition history, and circulation state.
+            Every physical copy has an individual barcode, shelf rack location, condition, and inventory status.
           </p>
         </div>
 
@@ -138,13 +130,13 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search by inventory code (e.g. RDW-000001), book title, or shelf..."
-            className="w-full pl-9 pr-4 py-2 text-xs bg-[#FAF8F5] border border-[#E5E0D8] rounded-lg focus:outline-hidden focus:border-[#EA580C]"
+            className="w-full pl-9 pr-4 py-2 text-xs bg-[#FAF8F5] border border-[#E5E0D8] rounded-lg focus:outline-hidden focus:border-[#c62828]"
           />
         </div>
 
         {/* Status segmented filters */}
         <div className="flex items-center gap-1 bg-[#F2EDE4] p-1 rounded-lg text-xs overflow-x-auto">
-          {['all', 'Available', 'Borrowed', 'Maintenance'].map((s) => (
+          {['all', 'Available', 'Maintenance'].map((s) => (
             <button
               key={s}
               onClick={() => setStatusFilter(s)}
@@ -198,7 +190,7 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
                 filteredCopies.map((copy) => (
                   <tr key={copy.id} className="hover:bg-[#FAF8F5] transition-colors">
                     <td className="py-3 px-4">
-                      <div className="font-mono font-bold text-[#EA580C]">{copy.inventory_code}</div>
+                      <div className="font-mono font-bold text-[#c62828]">{copy.inventory_code}</div>
                       <div className="text-[10px] text-[#A89F91] font-mono">{copy.barcode}</div>
                     </td>
                     <td className="py-3 px-4">
@@ -224,12 +216,12 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
                         className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold font-mono ${
                           copy.status === 'Available'
                             ? 'bg-emerald-100 text-emerald-800'
-                            : copy.status === 'Borrowed'
-                            ? 'bg-amber-100 text-amber-800'
-                            : 'bg-rose-100 text-rose-800'
+                            : copy.status === 'Maintenance' || copy.status === 'Damaged'
+                            ? 'bg-rose-100 text-rose-800'
+                            : 'bg-amber-100 text-amber-800'
                         }`}
                       >
-                        {copy.status}
+                        {copy.status === 'Borrowed' || copy.status === 'Reserved' ? 'Unavailable' : copy.status}
                       </span>
                     </td>
                     <td className="py-3 px-4 text-right font-mono tabular-nums text-[#5A4D44]">
@@ -244,25 +236,17 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
                         >
                           <Printer className="w-3.5 h-3.5" />
                         </button>
-                        {userRole !== 'Member' && (
+                        {userRole !== 'Member' && !['Borrowed', 'Reserved', 'Lost'].includes(copy.status) && (
                           <button
                             onClick={() => {
                               setEditingCopy(copy);
                               setEditStatus(copy.status);
                               setEditCondition(copy.condition);
                             }}
-                            className="p-1 text-[#7E6F64] hover:text-[#EA580C] hover:bg-[#F0ECE4] rounded"
+                            className="p-1 text-[#7E6F64] hover:text-[#c62828] hover:bg-[#F0ECE4] rounded"
                             title="Edit Status"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                        {copy.status === 'Available' && userRole !== 'Member' && (
-                          <button
-                            onClick={() => onNavigateToBorrow(copy.id)}
-                            className="px-2 py-1 bg-[#EA580C] hover:bg-[#C2410C] text-white text-[11px] font-semibold rounded"
-                          >
-                            Borrow
                           </button>
                         )}
                       </div>
@@ -305,10 +289,8 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
                   className="w-full px-3 py-2 bg-[#FAF8F5] border border-[#E5E0D8] rounded-lg text-xs"
                 >
                   <option value="Available">Available</option>
-                  <option value="Borrowed">Borrowed</option>
                   <option value="Maintenance">Maintenance</option>
                   <option value="Damaged">Damaged</option>
-                  <option value="Lost">Lost</option>
                 </select>
               </div>
 
@@ -339,7 +321,7 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-semibold rounded-lg shadow-2xs"
+                  className="px-4 py-2 bg-[#c62828] hover:bg-[#a61f1f] text-white text-xs font-semibold rounded-lg shadow-2xs"
                 >
                   Save Changes
                 </button>
@@ -365,8 +347,8 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
 
             {/* Simulated physical label sticker */}
             <div className="bg-[#FFFDF9] border-2 border-dashed border-[#B88A58] p-4 rounded-lg text-center space-y-2 shadow-xs">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-[#7C2D12]">
-                Readowl Digital Library
+              <div className="text-[10px] font-bold uppercase tracking-wider text-[#7f1d1d]">
+                MeelieFont Library
               </div>
               <div className="font-mono text-base font-extrabold text-[#2C221E] tracking-wider">
                 {printCopy.inventory_code}
@@ -396,7 +378,7 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({
               </button>
               <button
                 onClick={() => window.print()}
-                className="px-4 py-2 bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-semibold rounded-lg shadow-2xs flex items-center gap-1.5"
+                className="px-4 py-2 bg-[#c62828] hover:bg-[#a61f1f] text-white text-xs font-semibold rounded-lg shadow-2xs flex items-center gap-1.5"
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>Print Sticker</span>

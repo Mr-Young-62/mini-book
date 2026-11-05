@@ -34,7 +34,7 @@ port = 54325
 site_url = "http://localhost:3000"
 additional_redirect_urls = ["https://localhost:3000"]
 jwt_expiry = 3600
-enable_signup = true
+enable_signup = false
 
 [storage]
 enabled = true

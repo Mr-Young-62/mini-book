@@ -4,13 +4,11 @@ import {
   Database,
   ShieldCheck,
   Save,
-  RotateCcw,
   CheckCircle2,
   AlertCircle,
   ExternalLink,
   Code,
   Building,
-  Clock,
   Layers,
 } from 'lucide-react';
 import { LibraryService } from '../services/libraryService';
@@ -36,26 +34,35 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [supabaseUrl, setSupabaseUrl] = useState(effectiveSupabaseUrl || '');
   const [supabaseKey, setSupabaseKey] = useState(effectiveSupabaseKey || '');
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveSuccessMessage, setSaveSuccessMessage] = useState('Settings saved successfully!');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleSaveSettings = (e: React.FormEvent) => {
+  const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
     setSaveSuccess(false);
 
     try {
-      // Save settings object
-      LibraryService.updateSettings(settings);
-
-      // Check if user updated Supabase credentials
+      let configChanged = false;
       if (supabaseUrl && supabaseKey) {
-        const configResult = configureSupabase(supabaseUrl.trim(), supabaseKey.trim());
-        if (!configResult.success) {
-          setErrorMessage(configResult.error || 'Failed to update Supabase configuration.');
+        const nextUrl = supabaseUrl.trim();
+        const nextKey = supabaseKey.trim();
+        configChanged = nextUrl !== effectiveSupabaseUrl || nextKey !== effectiveSupabaseKey;
+        if (configChanged) {
+          const configResult = configureSupabase(nextUrl, nextKey);
+          if (!configResult.success) {
+            setErrorMessage(configResult.error || 'Failed to update Supabase configuration.');
+            return;
+          }
+          setSaveSuccessMessage('Supabase connection saved. Sign in, then save library settings to the cloud.');
+          setSaveSuccess(true);
+          onRefreshAppState();
           return;
         }
       }
 
+      await LibraryService.updateSettings(settings);
+      setSaveSuccessMessage('Settings saved successfully!');
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
       onRefreshAppState();
@@ -73,14 +80,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     }
   };
 
-  const handleClearAllData = () => {
-    if (window.confirm('Are you sure you want to delete all dummy and library data? This will clear all books, copies, members, and loans.')) {
-      LibraryService.clearAllData();
-      onRefreshAppState();
-      window.location.reload();
-    }
-  };
-
   return (
     <div className="max-w-4xl space-y-6">
       {/* Header */}
@@ -89,14 +88,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           Library & System Settings
         </h1>
         <p className="text-xs text-[#7E6F64]">
-          Configure your Supabase database connection, circulation borrowing rules, and library metadata.
+          Configure your Supabase database connection, library metadata, and inventory defaults.
         </p>
       </div>
 
       {saveSuccess && (
         <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2 text-xs text-emerald-900">
           <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>Settings saved successfully!</span>
+          <span>{saveSuccessMessage}</span>
         </div>
       )}
 
@@ -114,7 +113,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         <div className="bg-white border border-[#E8E2D9] rounded-xl p-5 shadow-2xs space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-[#F0ECE4]">
             <div className="flex items-center gap-2">
-              <Database className="w-4 h-4 text-[#EA580C]" />
+              <Database className="w-4 h-4 text-[#c62828]" />
               <h3 className="text-sm font-bold text-[#2C221E]">
                 Supabase Backend Configuration
               </h3>
@@ -131,7 +130,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           </div>
 
           <p className="text-xs text-[#7E6F64] leading-relaxed">
-            Readowl uses Supabase PostgreSQL, Storage, Auth, and Edge Functions. When live credentials are supplied below, the client persists directly to your cloud Supabase database.
+            MeelieFont uses Supabase PostgreSQL, Storage, Auth, and Edge Functions. When live credentials are supplied below, the client persists directly to your cloud Supabase database.
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
@@ -183,7 +182,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         {/* ================================================================= */}
         <div className="bg-white border border-[#E8E2D9] rounded-xl p-5 shadow-2xs space-y-4">
           <div className="flex items-center gap-2 pb-3 border-b border-[#F0ECE4]">
-            <Building className="w-4 h-4 text-[#EA580C]" />
+            <Building className="w-4 h-4 text-[#c62828]" />
             <h3 className="text-sm font-bold text-[#2C221E]">Library Profile</h3>
           </div>
 
@@ -260,96 +259,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           </div>
         </div>
 
-        {/* ================================================================= */}
-        {/* 3. CIRCULATION & BORROWING POLICIES */}
-        {/* ================================================================= */}
-        <div className="bg-white border border-[#E8E2D9] rounded-xl p-5 shadow-2xs space-y-4">
-          <div className="flex items-center gap-2 pb-3 border-b border-[#F0ECE4]">
-            <Clock className="w-4 h-4 text-[#EA580C]" />
-            <h3 className="text-sm font-bold text-[#2C221E]">Circulation & Late Fee Policies</h3>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-            <div>
-              <label className="block text-[11px] font-medium text-[#5A4D44] mb-1">
-                Default Loan Duration (Days)
-              </label>
-              <input
-                type="number"
-                value={settings.circulation_rules.default_loan_days}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    circulation_rules: {
-                      ...settings.circulation_rules,
-                      default_loan_days: parseInt(e.target.value, 10) || 14,
-                    },
-                  })
-                }
-                className="w-full px-3 py-2 bg-[#FAF8F5] border border-[#E5E0D8] rounded-lg text-xs font-mono"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-medium text-[#5A4D44] mb-1">
-                Max Books per Member
-              </label>
-              <input
-                type="number"
-                value={settings.circulation_rules.max_loans_per_member}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    circulation_rules: {
-                      ...settings.circulation_rules,
-                      max_loans_per_member: parseInt(e.target.value, 10) || 5,
-                    },
-                  })
-                }
-                className="w-full px-3 py-2 bg-[#FAF8F5] border border-[#E5E0D8] rounded-lg text-xs font-mono"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-medium text-[#5A4D44] mb-1">
-                Daily Overdue Fee Rate ($)
-              </label>
-              <input
-                type="number"
-                step="0.05"
-                value={settings.circulation_rules.daily_late_fee}
-                onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    circulation_rules: {
-                      ...settings.circulation_rules,
-                      daily_late_fee: parseFloat(e.target.value) || 0.5,
-                    },
-                  })
-                }
-                className="w-full px-3 py-2 bg-[#FAF8F5] border border-[#E5E0D8] rounded-lg text-xs font-mono"
-                required
-              />
-            </div>
-          </div>
-        </div>
-
         {/* Form Actions */}
         <div className="flex items-center justify-between pt-2">
           <button
-            type="button"
-            onClick={handleClearAllData}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-rose-700 hover:text-rose-900 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Delete All Dummy Data</span>
-          </button>
-
-          <button
             type="submit"
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-semibold rounded-lg shadow-2xs transition-colors"
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#c62828] hover:bg-[#a61f1f] text-white text-xs font-semibold rounded-lg shadow-2xs transition-colors"
           >
             <Save className="w-4 h-4" />
             <span>Save Configuration</span>

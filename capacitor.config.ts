@@ -12,7 +12,7 @@ export interface CapacitorConfig {
 
 const config: CapacitorConfig = {
   appId: 'org.readowl.library',
-  appName: 'Mini Book',
+  appName: 'MeelieFont',
   webDir: 'dist',
   server: {
     androidScheme: 'https',

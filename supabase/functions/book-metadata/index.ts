@@ -1,5 +1,5 @@
 // Supabase Edge Function: book-metadata
-// Secure server-side ISBN metadata lookup with multi-provider fallback (Open Library + Google Books)
+// Server-side ISBN metadata lookup with public-catalog fallbacks.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
@@ -22,7 +22,130 @@ interface MetadataResponse {
   coverUrl?: string;
   alternateCoverUrl?: string;
   categories: string[];
-  source: "open_library" | "google_books" | "manual" | "merged";
+  source: "open_library" | "google_books" | "jakarta_library" | "manual" | "merged";
+}
+
+function decodeHtml(value: string): string {
+  return value
+    .replace(/&nbsp;|&#160;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&#(\d+);/g, (_, code: string) => String.fromCodePoint(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code: string) => String.fromCodePoint(parseInt(code, 16)));
+}
+
+function stripHtml(value: string): string {
+  return decodeHtml(value.replace(/<script\b[^>]*>[\s\S]*?<\/script>|<style\b[^>]*>[\s\S]*?<\/style>/gi, " "))
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getMetaContent(page: string, property: string): string | undefined {
+  const escaped = property.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const tag = page.match(new RegExp(`<meta\\b(?=[^>]*(?:property|name)=["']${escaped}["'])[^>]*>`, "i"))?.[0];
+  const content = tag?.match(/\bcontent=["']([^"']*)["']/i)?.[1];
+  return content ? stripHtml(content) : undefined;
+}
+
+function getCatalogField(page: string, label: string): string | undefined {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const row = page.match(new RegExp(
+    `<div\\b[^>]*>\\s*<span\\b[^>]*>\\s*${escaped}\\s*<\\/span>\\s*<span\\b[^>]*>([\\s\\S]*?)<\\/span>\\s*<\\/div>`,
+    "i",
+  ))?.[1];
+  return row ? stripHtml(row) : undefined;
+}
+
+function parseCatalogAuthors(value?: string): string[] {
+  if (!value) return [];
+  return value.split(";")
+    .map((entry) => entry.replace(/\s*\([^)]*\)\s*/g, " ").trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const comma = entry.indexOf(",");
+      return comma > 0
+        ? `${entry.slice(comma + 1).trim()} ${entry.slice(0, comma).trim()}`
+        : entry;
+    });
+}
+
+async function fetchJakartaCatalogMetadata(isbn: string, isbn13: string): Promise<MetadataResponse | null> {
+  const baseUrl = "https://perpustakaan.jakarta.go.id";
+  const searchUrl = `${baseUrl}/book?keyword=${encodeURIComponent(isbn)}`;
+  const searchResponse = await fetch(searchUrl, {
+    headers: { "User-Agent": "Mozilla/5.0 (compatible; MeelieFont/1.0)" },
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!searchResponse.ok) throw new Error(`Jakarta catalog search failed: HTTP ${searchResponse.status}`);
+
+  const searchPage = await searchResponse.text();
+  const detailLinks = [...searchPage.matchAll(
+    /<a\b([^>]*href=["']([^"']*\/book\/detail\?cn=[^"']+)["'][^>]*)>([\s\S]*?)<\/a>/gi,
+  )].slice(0, 5);
+
+  for (const match of detailLinks) {
+    const detailUrl = new URL(decodeHtml(match[2]), baseUrl);
+    if (detailUrl.origin !== baseUrl || detailUrl.pathname !== "/book/detail") continue;
+
+    const detailResponse = await fetch(detailUrl, {
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; MeelieFont/1.0)" },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!detailResponse.ok) continue;
+
+    const detailPage = await detailResponse.text();
+    const listedIsbns = getCatalogField(detailPage, "ISBN")?.match(/97[89][0-9Xx-]{10,}/g) || [];
+    if (!listedIsbns.some((value) => normalizeIsbn13(value) === isbn13)) continue;
+
+    const title = getMetaContent(detailPage, "og:title")
+      || stripHtml(match[3].match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1] || "");
+    if (!title) continue;
+
+    const authorText = match[3].match(/<h3\b[^>]*>([\s\S]*?)<\/h3>/i)?.[1];
+    const publisherText = getCatalogField(detailPage, "Penerbit");
+    const publisher = publisherText?.match(/:\s*([^,;]+)/)?.[1]?.trim();
+    const publicationYear = Number(publisherText?.match(/\b(?:19|20)\d{2}\b/)?.[0]) || undefined;
+    const physicalDescription = getCatalogField(detailPage, "Deskripsi Fisik") || "";
+    const pageCount = Number(physicalDescription.match(/\b(\d+)\s*halaman\b/i)?.[1]) || undefined;
+    const languageText = getCatalogField(detailPage, "Bahasa")?.toLowerCase();
+    const coverUrl = getMetaContent(detailPage, "og:image");
+    const description = getMetaContent(detailPage, "og:description")
+      || getCatalogField(detailPage, "Deskripsi Teks");
+    const category = getCatalogField(detailPage, "Subjek");
+
+    return {
+      title,
+      authors: parseCatalogAuthors(authorText),
+      publisher,
+      publicationYear,
+      isbn10: isbn.length === 10 ? isbn : undefined,
+      isbn13,
+      description,
+      language: languageText?.includes("indonesia") ? "id" : languageText?.slice(0, 10),
+      pageCount,
+      coverUrl,
+      categories: category ? [category] : [],
+      source: "jakarta_library",
+    };
+  }
+
+  return null;
+}
+
+function normalizeIsbn13(value: string): string {
+  const cleaned = value.replace(/[^0-9X]/gi, "").toUpperCase();
+  if (!/^\d{9}[\dX]$/.test(cleaned)) return cleaned;
+
+  const core = `978${cleaned.slice(0, 9)}`;
+  let sum = 0;
+  for (let index = 0; index < core.length; index++) {
+    sum += Number(core[index]) * (index % 2 === 0 ? 1 : 3);
+  }
+  return `${core}${(10 - (sum % 10)) % 10}`;
 }
 
 serve(async (req: Request) => {
@@ -97,7 +220,9 @@ serve(async (req: Request) => {
       olMetadata.title &&
       olMetadata.authors.length > 0 &&
       olMetadata.publisher &&
+      olMetadata.publicationYear &&
       olMetadata.description &&
+      olMetadata.pageCount &&
       hasRealOlCover
     );
 
@@ -125,9 +250,9 @@ serve(async (req: Request) => {
             const identifiers = item?.volumeInfo?.industryIdentifiers || [];
             return identifiers.some((id: any) => {
               const rawId = (id?.identifier || "").replace(/[-\s]/g, "").trim().toUpperCase();
-              return rawId === cleanIsbn;
+              return rawId === cleanIsbn || normalizeIsbn13(rawId) === cleanIsbn;
             });
-          }) || (gbData.items.length === 1 ? gbData.items[0] : null);
+          });
 
           if (matchingItem && matchingItem.volumeInfo) {
             const volume = matchingItem.volumeInfo;
@@ -172,46 +297,50 @@ serve(async (req: Request) => {
       console.warn("Google Books fetch error:", err);
     }
 
-    // 3. Merging logic (BUG-02 fix)
-    if (olMetadata && gbMetadata) {
-      const primaryCover = hasRealGbCover
-        ? gbMetadata.coverUrl
-        : (hasRealOlCover ? olMetadata.coverUrl : gbMetadata.coverUrl || olMetadata.coverUrl);
+    let jakartaMetadata: MetadataResponse | null = null;
+    const availableMetadata = [olMetadata, gbMetadata].filter((metadata) => metadata !== null);
+    const needsCatalogFallback = availableMetadata.length === 0 || availableMetadata.some((metadata) =>
+      !metadata.title || !metadata.authors.length || !metadata.publisher || !metadata.publicationYear
+      || !metadata.description || !metadata.pageCount
+    );
+    if (needsCatalogFallback) {
+      try {
+        jakartaMetadata = await fetchJakartaCatalogMetadata(cleanIsbn, normalizeIsbn13(cleanIsbn));
+      } catch (err) {
+        console.warn("Jakarta library catalog fetch error:", err);
+      }
+    }
 
-      const alternateCover = hasRealGbCover && hasRealOlCover && olMetadata.coverUrl !== primaryCover
-        ? olMetadata.coverUrl
-        : undefined;
-
-      const merged: MetadataResponse = {
-        title: olMetadata.title || gbMetadata.title,
-        subtitle: olMetadata.subtitle || gbMetadata.subtitle,
-        authors: olMetadata.authors.length > 0 ? olMetadata.authors : gbMetadata.authors,
-        publisher: olMetadata.publisher || gbMetadata.publisher,
-        publicationYear: olMetadata.publicationYear || gbMetadata.publicationYear,
-        isbn10: olMetadata.isbn10 || gbMetadata.isbn10,
-        isbn13: olMetadata.isbn13 || gbMetadata.isbn13,
-        description: olMetadata.description || gbMetadata.description,
-        language: gbMetadata.language || olMetadata.language,
-        pageCount: olMetadata.pageCount || gbMetadata.pageCount,
-        coverUrl: primaryCover,
-        alternateCoverUrl: alternateCover,
-        categories: olMetadata.categories.length > 0 ? olMetadata.categories : gbMetadata.categories,
-        source: "merged",
+    // Merge verified records so regional catalogs can fill fields missing from global APIs.
+    const sources = [olMetadata, gbMetadata, jakartaMetadata].filter(
+      (metadata): metadata is MetadataResponse => metadata !== null,
+    );
+    if (sources.length > 0) {
+      const choose = (getValue: (metadata: MetadataResponse) => string | number | undefined) =>
+        sources.map(getValue).find((value) => value !== undefined && value !== "");
+      const authors = sources.find((metadata) => metadata.authors.length > 0)?.authors || [];
+      const categories = sources.find((metadata) => metadata.categories.length > 0)?.categories || [];
+      const coverSource = sources.find((metadata) =>
+        metadata.coverUrl && metadata.coverUrl !== `https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg`
+      );
+      const metadata: MetadataResponse = {
+        title: choose((item) => item.title as string) as string,
+        subtitle: choose((item) => item.subtitle as string | undefined) as string | undefined,
+        authors,
+        publisher: choose((item) => item.publisher as string | undefined) as string | undefined,
+        publicationYear: choose((item) => item.publicationYear) as number | undefined,
+        isbn10: choose((item) => item.isbn10 as string | undefined) as string | undefined,
+        isbn13: normalizeIsbn13(cleanIsbn),
+        description: choose((item) => item.description as string | undefined) as string | undefined,
+        language: choose((item) => item.language as string | undefined) as string | undefined,
+        pageCount: choose((item) => item.pageCount) as number | undefined,
+        coverUrl: coverSource?.coverUrl || `https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg`,
+        alternateCoverUrl: undefined,
+        categories,
+        source: sources.length > 1 ? "merged" : sources[0].source,
       };
 
-      return new Response(JSON.stringify(merged), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (olMetadata) {
-      return new Response(JSON.stringify(olMetadata), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (gbMetadata) {
-      return new Response(JSON.stringify(gbMetadata), {
+      return new Response(JSON.stringify(metadata), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

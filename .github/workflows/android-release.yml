@@ -1,0 +1,142 @@
+name: Android Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web assets
+        run: npm run build
+
+      - name: Prepare Firebase and signing files
+        env:
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$GOOGLE_SERVICES_JSON_BASE64" || (echo "Missing GOOGLE_SERVICES_JSON_BASE64 secret" && exit 1)
+          test -n "$ANDROID_KEYSTORE_BASE64" || (echo "Missing ANDROID_KEYSTORE_BASE64 secret" && exit 1)
+          printf '%s' "$GOOGLE_SERVICES_JSON_BASE64" | base64 --decode > android/app/google-services.json
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/meeliefont-release.jks
+
+      - name: Sync Capacitor Android project
+        run: npx cap sync android
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      - name: Set up Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.FIREBASE_PROJECT_ID }}
+
+      - name: Build signed release APK
+        env:
+          ANDROID_KEYSTORE_PATH: meeliefont-release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          APK_STORAGE_BUCKET: ${{ secrets.APK_STORAGE_BUCKET }}
+        run: |
+          test -n "$ANDROID_KEYSTORE_PASSWORD" || (echo "Missing ANDROID_KEYSTORE_PASSWORD secret" && exit 1)
+          test -n "$ANDROID_KEY_ALIAS" || (echo "Missing ANDROID_KEY_ALIAS secret" && exit 1)
+          test -n "$ANDROID_KEY_PASSWORD" || (echo "Missing ANDROID_KEY_PASSWORD secret" && exit 1)
+          test -n "$APK_STORAGE_BUCKET" || (echo "Missing APK_STORAGE_BUCKET secret" && exit 1)
+          export APP_VERSION="${GITHUB_REF_NAME#v}"
+          [[ "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]] || (echo "Release tag must use vMAJOR.MINOR.PATCH format" && exit 1)
+          export APP_VERSION_CODE="$GITHUB_RUN_NUMBER"
+          cd android
+          ./gradlew app:assembleRelease
+          APK_NAME="MeelieFont-${GITHUB_REF_NAME}.apk"
+          gcloud storage cp --cache-control="public,max-age=31536000,immutable" \
+            app/build/outputs/apk/release/app-release.apk \
+            "gs://${APK_STORAGE_BUCKET}/${APK_NAME}"
+
+      - name: Publish APK release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: MeelieFont ${{ github.ref_name }}
+          generate_release_notes: true
+
+  notify-devices:
+    needs: build-and-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Authenticate to Firebase
+        id: firebase-auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/firebase.messaging
+
+      - name: Send update notification to subscribed Android devices
+        env:
+          FIREBASE_ACCESS_TOKEN: ${{ steps.firebase-auth.outputs.auth_token }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          APK_STORAGE_BUCKET: ${{ secrets.APK_STORAGE_BUCKET }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node --input-type=module <<'NODE'
+          const projectId = process.env.FIREBASE_PROJECT_ID;
+          const bucket = process.env.APK_STORAGE_BUCKET;
+          if (!projectId || !process.env.FIREBASE_ACCESS_TOKEN || !bucket) {
+            throw new Error('Firebase project ID, access token, or APK bucket is missing.');
+          }
+          if (!/^[a-z0-9._-]+$/.test(bucket)) {
+            throw new Error('APK_STORAGE_BUCKET is not a valid bucket name.');
+          }
+
+          const tag = process.env.RELEASE_TAG;
+          const apkUrl = `https://storage.googleapis.com/${bucket}/MeelieFont-${tag}.apk`;
+          const response = await fetch(`https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${process.env.FIREBASE_ACCESS_TOKEN}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              message: {
+                topic: 'meeliefont-updates',
+                notification: {
+                  title: 'MeelieFont',
+                  body: `Versi ${tag} tersedia. Ketuk untuk mengunduh pembaruan.`,
+                },
+                data: {
+                  version: tag,
+                  apkUrl,
+                },
+              },
+            }),
+          });
+
+          if (!response.ok) {
+            throw new Error(`Firebase rejected the update notification: ${response.status} ${await response.text()}`);
+          }
+          NODE

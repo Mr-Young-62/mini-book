@@ -5,5 +5,5 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .run(tauri::generate_context!())
-        .expect("error while running Readowl desktop application");
+        .expect("error while running MeelieFont desktop application");
 }

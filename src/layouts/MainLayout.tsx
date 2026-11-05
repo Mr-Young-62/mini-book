@@ -1,21 +1,16 @@
 import React, { useState } from 'react';
 import {
-  BookOpen,
   QrCode,
   Layers,
-  ArrowRightLeft,
   Users,
   BarChart3,
   Settings as SettingsIcon,
-  Database,
   ShieldCheck,
   Menu,
   X,
-  Plus,
-  BookCopy,
 } from 'lucide-react';
+import brandLogo from '../assets/meeliefont-logo.png';
 import { UserRole } from '../types/library';
-import { isSupabaseConfigured, effectiveSupabaseUrl } from '../lib/supabase';
 
 interface MainLayoutProps {
   currentTab: string;
@@ -25,6 +20,8 @@ interface MainLayoutProps {
   userRole: UserRole;
   onChangeRole: (role: UserRole) => void;
   onOpenQuickScan: () => void;
+  cloudMode: boolean;
+  onSignOut?: () => void;
   children: React.ReactNode;
 }
 
@@ -36,18 +33,17 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   userRole,
   onChangeRole,
   onOpenQuickScan,
+  cloudMode,
+  onSignOut,
   children,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: BarChart3, roles: ['Administrator', 'Librarian', 'Member'] },
-    { id: 'books', label: 'Bookshelf & Catalog', icon: BookOpen, roles: ['Administrator', 'Librarian', 'Member'] },
     { id: 'scanner', label: 'ISBN Scanner', icon: QrCode, roles: ['Administrator', 'Librarian'] },
     { id: 'inventory', label: 'Physical Inventory', icon: Layers, roles: ['Administrator', 'Librarian'] },
-    { id: 'circulation', label: 'Borrow & Return', icon: ArrowRightLeft, roles: ['Administrator', 'Librarian'] },
     { id: 'members', label: 'Members', icon: Users, roles: ['Administrator', 'Librarian'] },
-    { id: 'reports', label: 'Analytics & Reports', icon: BarChart3, roles: ['Administrator', 'Librarian'] },
     { id: 'settings', label: 'Settings', icon: SettingsIcon, roles: ['Administrator'] },
   ];
 
@@ -63,9 +59,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
             type="button"
           >
             <span className="brand-mark">
-              <BookCopy className="w-5 h-5" />
+              <img src={brandLogo} alt="MeelieFont" />
             </span>
-            <span>Readowl</span>
           </button>
 
           <nav className="sidebar-nav" aria-label="Main navigation">
@@ -88,69 +83,59 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
           </nav>
         </div>
 
-        <div className="sidebar-footer">
-          <div className="continue-card">
-            <span className="card-title">Continue reading</span>
-            <div className="mini-book-preview" />
-            <div className="mini-shelf" />
-          </div>
-
-          <button
-            type="button"
-            className="user-profile"
-            onClick={() => onSelectTab('settings')}
-          >
-            <div className="user-info">
-              <div className="avatar">S</div>
-              <div>
-                <div className="user-name">Stephan</div>
-                <div className="user-role">{userRole}</div>
-              </div>
-            </div>
-            <div className="chevron">›</div>
-          </button>
-        </div>
       </aside>
 
       <div className="main-panel">
         <header className="main-header">
-          <div className="tab-container">
-            <button
-              type="button"
-              className={`tab-button ${dashboardView === 'shelves' ? 'active' : ''}`}
-              onClick={() => onChangeDashboardView?.('shelves')}
-            >
-              Shelves
-            </button>
-            <button
-              type="button"
-              className={`tab-button ${dashboardView === 'all-books' ? 'active' : ''}`}
-              onClick={() => onChangeDashboardView?.('all-books')}
-            >
-              All Books
-            </button>
-          </div>
+          {currentTab === 'dashboard' && (
+            <div className="tab-container">
+              <button
+                type="button"
+                className={`tab-button ${dashboardView === 'shelves' ? 'active' : ''}`}
+                onClick={() => onChangeDashboardView?.('shelves')}
+              >
+                Shelves
+              </button>
+              <button
+                type="button"
+                className={`tab-button ${dashboardView === 'all-books' ? 'active' : ''}`}
+                onClick={() => onChangeDashboardView?.('all-books')}
+              >
+                All Books
+              </button>
+            </div>
+          )}
 
           <div className="header-actions">
-            <div className="search-box">
-              <span className="search-icon"><BookOpen className="w-4 h-4" /></span>
-              <input type="search" placeholder="Search in My Library" aria-label="Search in My Library" />
-            </div>
-
-            <div className="role-switcher">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              <select value={userRole} onChange={(e) => onChangeRole(e.target.value as UserRole)}>
-                <option value="Administrator">Admin</option>
-                <option value="Librarian">Librarian</option>
-                <option value="Member">Member</option>
-              </select>
-            </div>
+            {cloudMode ? (
+              <span className="role-switcher" aria-label={`Signed in as ${userRole}`}>
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>{userRole}</span>
+              </span>
+            ) : (
+              <div className="role-switcher">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <select
+                  aria-label="Preview interface role (not an access-control mechanism)"
+                  title="Role preview only; permissions are not enforced in local mode."
+                  value={userRole}
+                  onChange={(e) => onChangeRole(e.target.value as UserRole)}
+                >
+                  <option value="Administrator">Admin preview</option>
+                  <option value="Librarian">Librarian preview</option>
+                  <option value="Member">Member preview</option>
+                </select>
+              </div>
+            )}
 
             {userRole !== 'Member' && (
               <button type="button" className="scan-button" onClick={onOpenQuickScan}>
                 <QrCode className="w-4 h-4" />
                 <span>Scan ISBN</span>
               </button>
+            )}
+            {cloudMode && onSignOut && (
+              <button type="button" className="scan-button" onClick={onSignOut}>Sign out</button>
             )}
           </div>
         </header>

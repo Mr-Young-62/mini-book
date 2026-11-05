@@ -1,6 +1,6 @@
 {
-  "name": "Readowl — Mini Digital Library",
-  "description": "Modern digital library management system with ISBN barcode scanning, Supabase backend, digital bookshelf visualization, borrowing, returning, and physical inventory management.",
+  "name": "MeelieFont — Digital Library",
+  "description": "Digital library management with ISBN barcode scanning, Supabase backend, digital bookshelf visualization, and physical inventory management.",
   "requestFramePermissions": ["camera"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

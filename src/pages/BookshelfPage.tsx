@@ -70,20 +70,18 @@ const BookCoverThumbnail: React.FC<{
 
 interface BookshelfPageProps {
   userRole: UserRole;
-  onNavigateToBorrow: (copyId?: string) => void;
   onNavigateToScanner: () => void;
 }
 
 export const BookshelfPage: React.FC<BookshelfPageProps> = ({
   userRole,
-  onNavigateToBorrow,
   onNavigateToScanner,
 }) => {
   const [books, setBooks] = useState<Book[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
-  const [availabilityFilter, setAvailabilityFilter] = useState<'all' | 'available' | 'borrowed'>('all');
+  const [availabilityFilter, setAvailabilityFilter] = useState<'all' | 'available' | 'unavailable'>('all');
   const [viewMode, setViewMode] = useState<'shelf' | 'grid' | 'table'>('shelf');
 
   // Selected book for detailed inspection modal
@@ -137,7 +135,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
     const matchesAvailability =
       availabilityFilter === 'all' ||
       (availabilityFilter === 'available' && availableCopies.length > 0) ||
-      (availabilityFilter === 'borrowed' && availableCopies.length === 0);
+      (availabilityFilter === 'unavailable' && availableCopies.length === 0);
 
     return matchesSearch && matchesCategory && matchesAvailability;
   });
@@ -239,7 +237,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
           {userRole !== 'Member' && (
             <button
               onClick={onNavigateToScanner}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-semibold rounded-lg shadow-2xs transition-colors whitespace-nowrap"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#c62828] hover:bg-[#a61f1f] text-white text-xs font-semibold rounded-lg shadow-2xs transition-colors whitespace-nowrap"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Catalog New Book</span>
@@ -258,7 +256,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search by title, author, ISBN, or inventory code..."
-            className="w-full pl-9 pr-4 py-2 text-xs bg-[#FAF8F5] border border-[#E5E0D8] rounded-lg focus:outline-hidden focus:border-[#EA580C]"
+            className="w-full pl-9 pr-4 py-2 text-xs bg-[#FAF8F5] border border-[#E5E0D8] rounded-lg focus:outline-hidden focus:border-[#c62828]"
           />
           {searchQuery && (
             <button
@@ -292,7 +290,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
           >
             <option value="all">All Status</option>
             <option value="available">Available on Shelf</option>
-            <option value="borrowed">All Copies Borrowed</option>
+            <option value="unavailable">No Available Copies</option>
           </select>
         </div>
       </div>
@@ -318,7 +316,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
           {books.length === 0 ? (
             <button
               onClick={onNavigateToScanner}
-              className="px-4 py-2 bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-semibold rounded-lg shadow-2xs"
+              className="px-4 py-2 bg-[#c62828] hover:bg-[#a61f1f] text-white text-xs font-semibold rounded-lg shadow-2xs"
             >
               Scan & Add First Book
             </button>
@@ -371,14 +369,14 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
                                   : 'bg-rose-700/90 text-white'
                               }`}
                             >
-                              {availableCount > 0 ? `${availableCount} on shelf` : 'Loaned'}
+                              {availableCount > 0 ? `${availableCount} on shelf` : 'Unavailable'}
                             </span>
                           </div>
                         </div>
 
                         {/* Minimal Title label below book on shelf */}
                         <div className="mt-2 text-center w-full">
-                          <h4 className="text-[11px] font-bold text-[#2C221E] line-clamp-1 group-hover:text-[#EA580C] transition-colors">
+                          <h4 className="text-[11px] font-bold text-[#2C221E] line-clamp-1 group-hover:text-[#c62828] transition-colors">
                             {book.title}
                           </h4>
                           <span className="text-[10px] text-[#7E6F64] line-clamp-1 font-mono">
@@ -410,7 +408,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
               <div
                 key={book.id}
                 onClick={() => setActiveBook(book)}
-                className="group cursor-pointer bg-white border border-[#E8E2D9] rounded-xl p-3 hover:border-[#EA580C]/40 hover:shadow-xs transition-all flex flex-col justify-between"
+                className="group cursor-pointer bg-white border border-[#E8E2D9] rounded-xl p-3 hover:border-[#c62828]/40 hover:shadow-xs transition-all flex flex-col justify-between"
               >
                 <div>
                   <div className="aspect-2/3 rounded-lg overflow-hidden bg-[#F0ECE4] mb-2.5 relative shadow-2xs">
@@ -431,7 +429,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
                     </span>
                   </div>
 
-                  <h3 className="text-xs font-bold text-[#2C221E] group-hover:text-[#EA580C] line-clamp-1 transition-colors">
+                  <h3 className="text-xs font-bold text-[#2C221E] group-hover:text-[#c62828] line-clamp-1 transition-colors">
                     {book.title}
                   </h3>
                   <p className="text-[11px] text-[#7E6F64] line-clamp-1">
@@ -505,7 +503,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
                             e.stopPropagation();
                             setActiveBook(book);
                           }}
-                          className="px-2.5 py-1 text-[11px] font-semibold text-[#EA580C] hover:bg-[#FFEDD5] rounded transition-colors"
+                          className="px-2.5 py-1 text-[11px] font-semibold text-[#c62828] hover:bg-[#fce4e4] rounded transition-colors"
                         >
                           View Details
                         </button>
@@ -526,7 +524,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
             {/* Modal Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-[#EAE5DE] bg-[#FAF8F5]">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-[#EA580C] uppercase tracking-wider font-mono">
+                <span className="text-xs font-semibold text-[#c62828] uppercase tracking-wider font-mono">
                   Bibliographic Details
                 </span>
                 <span>·</span>
@@ -633,7 +631,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
                       className="flex items-center justify-between p-2.5 rounded-lg border border-[#EAE5DE] bg-[#FAF8F5] text-xs"
                     >
                       <div className="flex items-center gap-3">
-                        <span className="font-mono font-bold text-[#EA580C] bg-[#FFEDD5] px-2 py-0.5 rounded">
+                        <span className="font-mono font-bold text-[#c62828] bg-[#fce4e4] px-2 py-0.5 rounded">
                           {copy.inventory_code}
                         </span>
                         <div>
@@ -659,20 +657,8 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
                               : 'bg-rose-100 text-rose-800'
                           }`}
                         >
-                          {copy.status}
+                          {copy.status === 'Borrowed' ? 'Unavailable' : copy.status}
                         </span>
-
-                        {copy.status === 'Available' && userRole !== 'Member' && (
-                          <button
-                            onClick={() => {
-                              setActiveBook(null);
-                              onNavigateToBorrow(copy.id);
-                            }}
-                            className="px-2.5 py-1 bg-[#EA580C] hover:bg-[#C2410C] text-white text-[11px] font-semibold rounded transition-colors"
-                          >
-                            Check Out
-                          </button>
-                        )}
                       </div>
                     </div>
                   ))}
@@ -683,7 +669,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
               {showAddCopyModal && (
                 <form
                   onSubmit={handleAddCopySubmit}
-                  className="bg-[#FAF8F5] border border-[#EA580C]/40 rounded-xl p-4 space-y-3"
+                  className="bg-[#FAF8F5] border border-[#c62828]/40 rounded-xl p-4 space-y-3"
                 >
                   <div className="flex items-center justify-between">
                     <h4 className="text-xs font-bold text-[#2C221E]">Add Physical Copy</h4>
@@ -761,7 +747,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
                     </button>
                     <button
                       type="submit"
-                      className="px-3.5 py-1.5 bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-semibold rounded-md shadow-2xs"
+                      className="px-3.5 py-1.5 bg-[#c62828] hover:bg-[#a61f1f] text-white text-xs font-semibold rounded-md shadow-2xs"
                     >
                       Save Copy
                     </button>

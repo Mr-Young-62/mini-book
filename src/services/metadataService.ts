@@ -1,4 +1,4 @@
-import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { supabase, metadataSupabase } from '../lib/supabase';
 import { ScannedBookMetadata } from '../types/library';
 import { cleanIsbn, isValidIsbn, normalizeToIsbn13 } from './isbnValidator';
 
@@ -15,7 +15,7 @@ export interface MetadataFetchResult {
   metadata?: ScannedBookMetadata;
   error?: string;
   errorType?: MetadataErrorType;
-  source?: 'open_library' | 'google_books' | 'manual' | 'local_database' | 'merged';
+  source?: 'open_library' | 'google_books' | 'jakarta_library' | 'manual' | 'local_database' | 'merged';
   alternateCoverUrl?: string;
 }
 
@@ -33,11 +33,43 @@ interface EdgeMetadataResponse {
   coverUrl?: string;
   alternateCoverUrl?: string;
   categories: string[];
-  source: 'open_library' | 'google_books' | 'manual' | 'local_database' | 'merged';
+  source: 'open_library' | 'google_books' | 'jakarta_library' | 'manual' | 'local_database' | 'merged';
 }
 
 // In-memory cache: repeated lookups (test barcodes, re-scans) skip the network
 const metadataCache = new Map<string, MetadataFetchResult>();
+
+function hasKnownAuthor(metadata: ScannedBookMetadata): boolean {
+  return metadata.authors.some((author) => author.trim() && author !== 'Unknown Author');
+}
+
+function isCacheWorthy(metadata: ScannedBookMetadata): boolean {
+  const knownFields = [
+    metadata.publisher,
+    metadata.publicationYear,
+    metadata.description,
+    metadata.pageCount,
+    metadata.language,
+  ].filter(Boolean).length;
+  return Boolean(metadata.title.trim() && hasKnownAuthor(metadata) && knownFields >= 3);
+}
+
+async function isRateLimitedResponse(response: Response): Promise<boolean> {
+  if (response.status === 429) return true;
+  if (response.status !== 403) return false;
+
+  try {
+    const body = await response.clone().json();
+    const error = body?.error;
+    const reasons = Array.isArray(error?.errors)
+      ? error.errors.map((item: { reason?: string }) => item.reason || '')
+      : [];
+    return reasons.some((reason: string) => /quota|ratelimit|rate.?limit/i.test(reason))
+      || /quota|rate.?limit/i.test(String(error?.message || ''));
+  } catch {
+    return false;
+  }
+}
 
 function finalizeSuccess(
   metadata: ScannedBookMetadata,
@@ -50,8 +82,56 @@ function finalizeSuccess(
     source,
     alternateCoverUrl: alternateCoverUrl || metadata.alternateCoverUrl,
   };
-  metadataCache.set(metadata.isbn13, result);
+  if (isCacheWorthy(metadata)) metadataCache.set(metadata.isbn13, result);
   return result;
+}
+
+function mergeMetadataSources(
+  sources: ScannedBookMetadata[],
+  isbn13: string,
+  hasRealOlCover: boolean,
+  hasRealGbCover: boolean,
+): ScannedBookMetadata {
+  const firstValue = <T,>(getValue: (metadata: ScannedBookMetadata) => T | undefined, isUseful: (value: T) => boolean = Boolean) =>
+    sources.map(getValue).find((value): value is T => value !== undefined && isUseful(value));
+  const realCover = hasRealGbCover
+    ? sources.find((metadata) => metadata.source === 'google_books')?.coverUrl
+    : hasRealOlCover
+      ? sources.find((metadata) => metadata.source === 'open_library')?.coverUrl
+      : undefined;
+  const alternateCover = hasRealGbCover && hasRealOlCover
+    ? sources.find((metadata) => metadata.source === 'open_library')?.coverUrl
+    : undefined;
+  const authors = firstValue(
+    (metadata) => metadata.authors,
+    (value) => value.some((author) => author.trim() && author !== 'Unknown Author'),
+  );
+  const categories = firstValue(
+    (metadata) => metadata.categories,
+    (value) => value.some((category) => category.trim() && category !== 'General Collection'),
+  );
+  const title = firstValue((metadata) => metadata.title, (value) => Boolean(value.trim())) || '';
+  const source = sources.length > 1 ? 'merged' : sources[0].source;
+
+  return {
+    title,
+    subtitle: firstValue((metadata) => metadata.subtitle, (value) => Boolean(value.trim())),
+    authors: authors?.filter((author) => author !== 'Unknown Author') || [],
+    publisher: firstValue((metadata) => metadata.publisher, (value) => Boolean(value.trim())),
+    publicationYear: firstValue((metadata) => metadata.publicationYear, (value) => value > 0),
+    isbn10: firstValue((metadata) => metadata.isbn10, (value) => Boolean(value.trim())),
+    isbn13,
+    description: firstValue((metadata) => metadata.description, (value) => Boolean(value.trim())),
+    language: firstValue((metadata) => metadata.language, (value) => Boolean(value.trim())),
+    pageCount: firstValue((metadata) => metadata.pageCount, (value) => value > 0),
+    coverUrl: realCover || firstValue(
+      (metadata) => metadata.coverUrl,
+      (value) => Boolean(value && !value.includes('covers.openlibrary.org/b/isbn/')),
+    ),
+    alternateCoverUrl: alternateCover && alternateCover !== realCover ? alternateCover : undefined,
+    categories: categories?.filter((category) => category !== 'General Collection') || ['General Collection'],
+    source,
+  };
 }
 
 function mapEdgeResponse(data: EdgeMetadataResponse, isbn13: string, isbn10?: string): ScannedBookMetadata {
@@ -68,9 +148,7 @@ function mapEdgeResponse(data: EdgeMetadataResponse, isbn13: string, isbn10?: st
     description: data.description,
     language: data.language,
     pageCount: data.pageCount,
-    coverUrl:
-      data.coverUrl ||
-      `https://covers.openlibrary.org/b/isbn/${isbn13}-L.jpg`,
+    coverUrl: data.coverUrl,
     alternateCoverUrl: data.alternateCoverUrl,
     categories:
       Array.isArray(data.categories) && data.categories.filter(Boolean).length > 0
@@ -122,7 +200,7 @@ async function fetchGoogleSearchFallback(isbn13: string, isbn10?: string): Promi
         description: item.snippet || undefined,
         language: undefined,
         pageCount: undefined,
-        coverUrl: `https://covers.openlibrary.org/b/isbn/${isbn13}-L.jpg`,
+        coverUrl: undefined,
         categories: ['General Collection'],
         source: 'google_books',
       };
@@ -138,10 +216,10 @@ async function fetchGoogleSearchFallback(isbn13: string, isbn10?: string): Promi
  * Fetch book metadata by ISBN.
  * Pipeline:
  * 1. Supabase edge function (server-side, cached, authenticated)
- * 2. Multi-source client query: Open Library and Google Books
- * 3. Google Search fallback when Google Books does not return a match
+ * 2. Supabase Edge Function lookup across Open Library, Google Books, and Jakarta Library
+ * 3. Direct Open Library and Google Books fallback when the Edge Function is unavailable
  * 4. Smart metadata merging for complete fields (title, author, publisher, cover, description)
- * 5. Verification that returned volume truly matches the scanned ISBN.
+ * 5. Verification that returned records match the scanned ISBN.
  */
 export async function fetchBookMetadataByIsbn(isbn: string): Promise<MetadataFetchResult> {
   const cleaned = cleanIsbn(isbn);
@@ -159,27 +237,33 @@ export async function fetchBookMetadataByIsbn(isbn: string): Promise<MetadataFet
   const cached = metadataCache.get(isbn13);
   if (cached) return cached;
 
-  // 1. Supabase edge function: bypasses client-side rate limits & uses server API key
-  if (isSupabaseConfigured && supabase) {
+  let edgeMetadata: ScannedBookMetadata | null = null;
+  let edgeFunctionError: string | undefined;
+
+  // Metadata lookup uses the build-configured project even when the library is in local-only mode.
+  const metadataClient = supabase || metadataSupabase;
+  if (metadataClient) {
     try {
-      const { data, error } = await supabase.functions.invoke('book-metadata', {
+      const { data, error } = await metadataClient.functions.invoke('book-metadata', {
         body: { isbn: isbn13 },
       });
 
       if (!error && data && (data as EdgeMetadataResponse).title && data.source) {
         const metadata = mapEdgeResponse(data as EdgeMetadataResponse, isbn13, isbn10);
-        const result: MetadataFetchResult = {
-          success: true,
-          metadata,
-          source: metadata.source,
-          alternateCoverUrl: metadata.alternateCoverUrl,
-        };
-        metadataCache.set(isbn13, result);
-        return result;
+        if (isCacheWorthy(metadata)) {
+          return finalizeSuccess(metadata, metadata.source, metadata.alternateCoverUrl);
+        }
+        edgeMetadata = metadata;
+      } else if (error) {
+        edgeFunctionError = error.message;
+        console.warn('Supabase book-metadata lookup failed:', error.message);
       }
     } catch (err: any) {
-      console.warn('Edge function book-metadata unavailable, falling back to direct lookup:', err?.message);
+      edgeFunctionError = err?.message || String(err);
+      console.warn('Edge function book-metadata unavailable, falling back to direct lookup:', edgeFunctionError);
     }
+  } else {
+    edgeFunctionError = 'Endpoint metadata Supabase tidak dikonfigurasi. Katalog Perpustakaan Jakarta membutuhkan Edge Function Supabase.';
   }
 
   // 2. Direct pipeline with multi-provider fallback & data merging
@@ -231,12 +315,12 @@ export async function fetchBookMetadataByIsbn(isbn: string): Promise<MetadataFet
             ? item.notes
             : (typeof item.description === 'object' ? item.description?.value : item.description) || undefined,
           pageCount: item.number_of_pages,
-          coverUrl: verifiedCover || `https://covers.openlibrary.org/b/isbn/${isbn13}-L.jpg`,
+          coverUrl: verifiedCover,
           categories: categories.length > 0 ? categories : ['General Collection'],
           source: 'open_library',
         };
       }
-    } else if (res.status === 429) {
+    } else if (await isRateLimitedResponse(res)) {
       encounteredRateLimit = true;
     }
   } catch (err: any) {
@@ -288,9 +372,9 @@ export async function fetchBookMetadataByIsbn(isbn: string): Promise<MetadataFet
           const identifiers = item?.volumeInfo?.industryIdentifiers || [];
           return identifiers.some((id: any) => {
             const rawId = cleanIsbn(id?.identifier || '');
-            return rawId === isbn13 || (isbn10 && rawId === isbn10);
+            return rawId === isbn13 || normalizeToIsbn13(rawId) === isbn13 || (isbn10 && rawId === isbn10);
           });
-        }) || (data.items.length === 1 ? data.items[0] : null);
+        });
 
         if (matchingItem && matchingItem.volumeInfo) {
           const volume = matchingItem.volumeInfo;
@@ -325,13 +409,13 @@ export async function fetchBookMetadataByIsbn(isbn: string): Promise<MetadataFet
             description: volume.description,
             language: volume.language,
             pageCount: volume.pageCount,
-            coverUrl: coverUrl || `https://covers.openlibrary.org/b/isbn/${isbn13}-L.jpg`,
+            coverUrl,
             categories: volume.categories && volume.categories.length > 0 ? volume.categories : ['General Collection'],
             source: 'google_books',
           };
         }
       }
-    } else if (res.status === 429) {
+    } else if (await isRateLimitedResponse(res)) {
       encounteredRateLimit = true;
     }
   } catch (err: any) {
@@ -345,53 +429,16 @@ export async function fetchBookMetadataByIsbn(isbn: string): Promise<MetadataFet
 
   // Step C: Smart Merge Pipeline (BUG-02 fix)
   // If we have both Open Library and Google Books, merge them for highest completeness.
-  if (olMetadata && gbMetadata) {
-    const primaryCover = hasRealGbCover
-      ? gbMetadata.coverUrl
-      : (hasRealOlCover ? olMetadata.coverUrl : gbMetadata.coverUrl || olMetadata.coverUrl);
-
-    const alternateCover = hasRealGbCover && hasRealOlCover && olMetadata.coverUrl !== primaryCover
-      ? olMetadata.coverUrl
-      : undefined;
-
-    const mergedAuthors =
-      olMetadata.authors[0] !== 'Unknown Author'
-        ? olMetadata.authors
-        : gbMetadata.authors;
-
-    const mergedCategories =
-      olMetadata.categories.length > 0 && olMetadata.categories[0] !== 'General Collection'
-        ? olMetadata.categories
-        : gbMetadata.categories;
-
-    const mergedMetadata: ScannedBookMetadata = {
-      title: olMetadata.title || gbMetadata.title,
-      subtitle: olMetadata.subtitle || gbMetadata.subtitle,
-      authors: mergedAuthors,
-      publisher: olMetadata.publisher || gbMetadata.publisher,
-      publicationYear: olMetadata.publicationYear || gbMetadata.publicationYear,
-      isbn10: olMetadata.isbn10 || gbMetadata.isbn10,
+  const metadataSources = [olMetadata, gbMetadata, edgeMetadata]
+    .filter((metadata): metadata is ScannedBookMetadata => metadata !== null);
+  if (metadataSources.length > 0) {
+    const mergedMetadata = mergeMetadataSources(
+      metadataSources,
       isbn13,
-      description: olMetadata.description || gbMetadata.description,
-      language: gbMetadata.language || olMetadata.language,
-      pageCount: olMetadata.pageCount || gbMetadata.pageCount,
-      coverUrl: primaryCover,
-      alternateCoverUrl: alternateCover,
-      categories: mergedCategories,
-      source: 'merged',
-    };
-
-    return finalizeSuccess(mergedMetadata, 'merged', alternateCover);
-  }
-
-  // If only Open Library found data:
-  if (olMetadata) {
-    return finalizeSuccess(olMetadata, 'open_library');
-  }
-
-  // If only Google Books found data:
-  if (gbMetadata) {
-    return finalizeSuccess(gbMetadata, 'google_books');
+      hasRealOlCover,
+      hasRealGbCover,
+    );
+    return finalizeSuccess(mergedMetadata, mergedMetadata.source, mergedMetadata.alternateCoverUrl);
   }
 
   const genericGoogleResult = await fetchGoogleSearchFallback(isbn13, isbn10);
@@ -413,7 +460,7 @@ export async function fetchBookMetadataByIsbn(isbn: string): Promise<MetadataFet
         isbn13,
         categories: ['General Collection'],
         source: 'manual',
-        coverUrl: `https://covers.openlibrary.org/b/isbn/${isbn13}-L.jpg`,
+        coverUrl: undefined,
       },
     };
   }
@@ -431,7 +478,7 @@ export async function fetchBookMetadataByIsbn(isbn: string): Promise<MetadataFet
         isbn13,
         categories: ['General Collection'],
         source: 'manual',
-        coverUrl: `https://covers.openlibrary.org/b/isbn/${isbn13}-L.jpg`,
+        coverUrl: undefined,
       },
     };
   }
@@ -449,7 +496,7 @@ export async function fetchBookMetadataByIsbn(isbn: string): Promise<MetadataFet
         isbn13,
         categories: ['General Collection'],
         source: 'manual',
-        coverUrl: `https://covers.openlibrary.org/b/isbn/${isbn13}-L.jpg`,
+        coverUrl: undefined,
       },
     };
   }
@@ -458,7 +505,9 @@ export async function fetchBookMetadataByIsbn(isbn: string): Promise<MetadataFet
   return {
     success: false,
     errorType: 'not_found',
-    error: `ISBN ${isbn13} valid, namun belum tercatat di database Open Library atau Google Books. Silakan lengkapi judul dan penulis secara manual untuk menyimpannya.`,
+    error: edgeFunctionError
+      ? `Metadata otomatis tidak ditemukan. Katalog Perpustakaan Jakarta gagal diakses: ${edgeFunctionError}. Periksa konfigurasi Supabase dan pastikan Edge Function "book-metadata" terbaru sudah di-deploy, lalu coba lagi.`
+      : `ISBN ${isbn13} valid, namun belum tercatat di sumber metadata yang tersedia. Silakan lengkapi judul dan penulis secara manual untuk menyimpannya.`,
     source: 'manual',
     metadata: {
       title: '',
@@ -467,7 +516,7 @@ export async function fetchBookMetadataByIsbn(isbn: string): Promise<MetadataFet
       isbn13,
       categories: ['General Collection'],
       source: 'manual',
-      coverUrl: `https://covers.openlibrary.org/b/isbn/${isbn13}-L.jpg`,
+      coverUrl: undefined,
     },
   };
 }

@@ -1,8 +1,8 @@
 [package]
-name = "readowl-desktop"
+name = "meeliefont-desktop"
 version = "1.0.0"
-description = "Readowl Mini Digital Library Desktop Application"
-authors = ["Readowl Team"]
+description = "MeelieFont Digital Library Desktop Application"
+authors = ["MeelieFont Team"]
 edition = "2021"
 
 [build-dependencies]

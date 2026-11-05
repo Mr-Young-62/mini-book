@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Mini Book</string>
-    <string name="title_activity_main">Mini Book</string>
+    <string name="app_name">MeelieFont</string>
+    <string name="title_activity_main">MeelieFont</string>
     <string name="package_name">org.readowl.library</string>
     <string name="custom_url_scheme">org.readowl.library</string>
 </resources>

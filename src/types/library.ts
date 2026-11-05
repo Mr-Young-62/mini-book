@@ -1,7 +1,6 @@
 export type CopyStatus = 'Available' | 'Borrowed' | 'Reserved' | 'Damaged' | 'Lost' | 'Maintenance';
 export type MembershipType = 'Standard' | 'Student' | 'Faculty' | 'VIP';
 export type MemberStatus = 'Active' | 'Suspended' | 'Expired' | 'Deactivated';
-export type TransactionStatus = 'Active' | 'Completed' | 'Overdue' | 'Cancelled';
 export type UserRole = 'Administrator' | 'Librarian' | 'Member';
 
 export interface Author {
@@ -72,33 +71,7 @@ export interface Member {
   membership_type: MembershipType;
   status: MemberStatus;
   profile_photo_url?: string;
-  active_loans_count?: number;
   created_at: string;
-}
-
-export interface BorrowTransactionItem {
-  id: string;
-  transaction_id: string;
-  book_copy_id: string;
-  returned_at?: string;
-  condition_on_return?: string;
-  late_fee: number;
-  status: 'Borrowed' | 'Returned';
-  copy?: BookCopy;
-}
-
-export interface BorrowTransaction {
-  id: string;
-  transaction_code: string;
-  member_id: string;
-  member?: Member;
-  borrowed_at: string;
-  due_date: string;
-  returned_at?: string;
-  status: TransactionStatus;
-  created_by?: string;
-  created_at: string;
-  items: BorrowTransactionItem[];
 }
 
 export interface ActivityLog {
@@ -119,13 +92,6 @@ export interface LibrarySettings {
     phone: string;
     email: string;
     currency: string;
-  };
-  circulation_rules: {
-    default_loan_days: number;
-    max_loans_per_member: number;
-    daily_late_fee: number;
-    allow_renewals: boolean;
-    max_renewals: number;
   };
   inventory_config: {
     code_prefix: string;
@@ -149,5 +115,5 @@ export interface ScannedBookMetadata {
   coverUrl?: string;
   alternateCoverUrl?: string;
   categories: string[];
-  source: 'open_library' | 'google_books' | 'manual' | 'local_database' | 'merged';
+  source: 'open_library' | 'google_books' | 'jakarta_library' | 'manual' | 'local_database' | 'merged';
 }

@@ -92,7 +92,6 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
   } | null>(null);
   const [metadata, setMetadata] = useState<ScannedBookMetadata | null>(null);
   const [existingBook, setExistingBook] = useState<Book | null>(null);
-  const [syncError, setSyncError] = useState<string | null>(null);
 
   // Physical inventory copy configuration
   const [copyCount, setCopyCount] = useState<number>(1);
@@ -119,8 +118,8 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
   const handleIsbnLookup = async (isbnToLookup: string) => {
     setLookupStatus(null);
     setSavedBook(null);
-    setSyncError(null);
     setExistingBook(null);
+    setMetadata(null);
 
     const cleaned = cleanIsbn(isbnToLookup);
     if (!isValidIsbn(cleaned)) {
@@ -133,6 +132,33 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
 
     setIsProcessing(true);
     try {
+      let alreadyInCatalog: Book | null = null;
+      try {
+        alreadyInCatalog = await LibraryService.getBookByIsbn(cleaned);
+      } catch (error) {
+        console.warn('Could not check the local catalog before metadata lookup:', error);
+      }
+
+      if (alreadyInCatalog) {
+        setExistingBook(alreadyInCatalog);
+        setMetadata({
+          title: alreadyInCatalog.title,
+          subtitle: alreadyInCatalog.subtitle,
+          authors: alreadyInCatalog.authors.map((author) => author.name),
+          publisher: alreadyInCatalog.publisher?.name,
+          publicationYear: alreadyInCatalog.publication_year,
+          isbn10: alreadyInCatalog.isbn_10,
+          isbn13: alreadyInCatalog.isbn_13,
+          description: alreadyInCatalog.description,
+          language: alreadyInCatalog.language,
+          pageCount: alreadyInCatalog.page_count,
+          coverUrl: alreadyInCatalog.cover_url,
+          categories: alreadyInCatalog.categories.map((category) => category.name),
+          source: 'local_database',
+        });
+        return;
+      }
+
       const res = await fetchBookMetadataByIsbn(cleaned);
       if (res.metadata) {
         setMetadata(res.metadata);
@@ -142,13 +168,7 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
             message: res.error,
           });
         }
-        // Check if book already exists in catalog
-        try {
-          const alreadyInCatalog = await LibraryService.getBookByIsbn(cleaned);
-          setExistingBook(alreadyInCatalog);
-        } catch {
-          setExistingBook(null);
-        }
+        setExistingBook(alreadyInCatalog);
       } else {
         setLookupStatus({
           type: res.errorType || 'general',
@@ -217,7 +237,6 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
 
       setSavedBook(result.book);
       setSavedCopiesCount(result.newCopies.length);
-      setSyncError(result.syncError || null);
       setMetadata(null);
       setExistingBook(null);
       setIsbnInput('');
@@ -242,15 +261,17 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
   const getSourceBadgeLabel = (source: string) => {
     switch (source) {
       case 'merged':
-        return 'Merged (Open Library + Google Books)';
+        return 'Merged (Multiple Sources)';
       case 'open_library':
         return 'Open Library';
       case 'google_books':
         return 'Google Books';
+      case 'jakarta_library':
+        return 'Perpustakaan Jakarta';
       case 'local_database':
         return 'Local Database';
       case 'manual':
-        return 'Manual Entry';
+        return 'Data Manual';
       default:
         return source.replace('_', ' ');
     }
@@ -264,7 +285,7 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
           Smart ISBN Barcode Scanner
         </h1>
         <p className="text-xs text-[#7E6F64]">
-          Katalog buku otomatis melalui scan barcode kamera atau input nomor ISBN. Terintegrasi multi-provider Open Library & Google Books.
+          Katalog buku otomatis melalui scan barcode kamera atau input ISBN, dengan fallback Open Library, Google Books, dan Perpustakaan Jakarta.
         </p>
       </div>
 
@@ -278,13 +299,8 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                 Buku "{savedBook.title}" Berhasil Ditambahkan ke Katalog!
               </p>
               <p className="text-[11px] text-emerald-800">
-                Membuat {savedCopiesCount} kopi fisik dengan kode inventaris RDW unik di {shelfLocation}.
+                Membuat {savedCopiesCount} kopi fisik dengan kode inventaris {LibraryService.getSettings().inventory_config.code_prefix} unik di {shelfLocation}.
               </p>
-              {syncError && (
-                <p className="mt-1 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
-                  Tersimpan di lokal, namun sinkronisasi cloud tertunda: {syncError}
-                </p>
-              )}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -328,7 +344,7 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
             <div>
               <p className="font-semibold">
                 {lookupStatus.type === 'not_found'
-                  ? 'Data Buku Belum Terdaftar Secara Global'
+                  ? 'Buku Tidak Ditemukan di Sumber Metadata'
                   : lookupStatus.type === 'invalid_isbn'
                   ? 'Format ISBN Tidak Sesuai'
                   : lookupStatus.type === 'rate_limited'
@@ -339,7 +355,7 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
             </div>
           </div>
 
-          {(lookupStatus.type === 'timeout' || lookupStatus.type === 'network_error') && isbnInput && (
+          {(lookupStatus.type === 'timeout' || lookupStatus.type === 'network_error' || lookupStatus.type === 'rate_limited' || lookupStatus.type === 'not_found') && isbnInput && (
             <button
               type="button"
               onClick={() => handleIsbnLookup(isbnInput)}
@@ -390,14 +406,14 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                   value={isbnInput}
                   onChange={(e) => setIsbnInput(e.target.value)}
                   placeholder="Contoh: 9780132350884 atau 0132350882"
-                  className="w-full px-3 py-2 text-xs font-mono bg-[#FAF8F5] border border-[#E5E0D8] rounded-lg focus:outline-hidden focus:border-[#EA580C]"
+                  className="w-full px-3 py-2 text-xs font-mono bg-[#FAF8F5] border border-[#E5E0D8] rounded-lg focus:outline-hidden focus:border-[#c62828]"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={isProcessing || !isbnInput}
-                className="px-4 py-2 bg-[#EA580C] hover:bg-[#C2410C] disabled:opacity-50 text-white text-xs font-semibold rounded-lg shadow-2xs flex items-center gap-1.5 whitespace-nowrap"
+                className="px-4 py-2 bg-[#c62828] hover:bg-[#a61f1f] disabled:opacity-50 text-white text-xs font-semibold rounded-lg shadow-2xs flex items-center gap-1.5 whitespace-nowrap"
               >
                 {isProcessing ? (
                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -422,7 +438,7 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                       setIsbnInput(s.isbn);
                       handleIsbnLookup(s.isbn);
                     }}
-                    className="px-2.5 py-1 text-[11px] bg-[#FAF8F5] hover:bg-[#FFEDD5] border border-[#E5E0D8] hover:border-[#EA580C]/40 text-[#4A3E35] rounded-md transition-colors font-mono"
+                    className="px-2.5 py-1 text-[11px] bg-[#FAF8F5] hover:bg-[#fce4e4] border border-[#E5E0D8] hover:border-[#c62828]/40 text-[#4A3E35] rounded-md transition-colors font-mono"
                   >
                     {s.title} ({s.isbn.slice(-4)})
                   </button>
@@ -440,11 +456,11 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
               className="bg-white border border-[#E8E2D9] rounded-xl p-5 shadow-2xs space-y-4"
             >
               <div className="flex items-center justify-between pb-3 border-b border-[#F0ECE4]">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-[#EA580C]">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-[#c62828]">
                   <Sparkles className="w-4 h-4" />
                   <span>
                     {metadata.source === 'manual'
-                      ? 'Kelengkapan Data Manual'
+                      ? 'Metadata Tidak Ditemukan — Isi Manual'
                       : 'Metadata Berhasil Diambil'}
                   </span>
                 </div>
@@ -474,7 +490,7 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                     type="text"
                     value={metadata.title}
                     onChange={(e) => setMetadata({ ...metadata, title: e.target.value })}
-                    className="w-full font-bold text-sm text-[#2C221E] border-b border-transparent hover:border-[#D4CDC3] focus:border-[#EA580C] focus:outline-hidden"
+                    className="w-full font-bold text-sm text-[#2C221E] border-b border-transparent hover:border-[#D4CDC3] focus:border-[#c62828] focus:outline-hidden"
                     placeholder="Judul Buku"
                     required
                   />
@@ -484,7 +500,7 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                     onChange={(e) =>
                       setMetadata({ ...metadata, subtitle: e.target.value || undefined })
                     }
-                    className="w-full text-xs text-[#7E6F64] italic border-b border-transparent hover:border-[#D4CDC3] focus:border-[#EA580C] focus:outline-hidden"
+                    className="w-full text-xs text-[#7E6F64] italic border-b border-transparent hover:border-[#D4CDC3] focus:border-[#c62828] focus:outline-hidden"
                     placeholder="Subjudul (opsional)"
                   />
                   <input
@@ -496,7 +512,7 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                         authors: e.target.value.split(',').map((s) => s.trim()),
                       })
                     }
-                    className="w-full text-xs text-[#7E6F64] border-b border-transparent hover:border-[#D4CDC3] focus:border-[#EA580C] focus:outline-hidden"
+                    className="w-full text-xs text-[#7E6F64] border-b border-transparent hover:border-[#D4CDC3] focus:border-[#c62828] focus:outline-hidden"
                     placeholder="Penulis (pisahkan dengan koma)"
                   />
                   <div className="pt-1 text-[11px] font-mono text-[#A89F91]">
@@ -602,7 +618,7 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
               {/* Physical Inventory Copies Configuration Section */}
               <div className="pt-3 border-t border-[#F0ECE4] space-y-3">
                 <div className="flex items-center gap-1.5 text-xs font-bold text-[#2C221E]">
-                  <Layers className="w-3.5 h-3.5 text-[#EA580C]" />
+                  <Layers className="w-3.5 h-3.5 text-[#c62828]" />
                   <span>Kopi Inventaris Fisik</span>
                 </div>
 
@@ -708,7 +724,7 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                 <button
                   type="submit"
                   disabled={isProcessing}
-                  className="px-4 py-2 bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-semibold rounded-lg shadow-2xs flex items-center gap-1.5"
+                  className="px-4 py-2 bg-[#c62828] hover:bg-[#a61f1f] text-white text-xs font-semibold rounded-lg shadow-2xs flex items-center gap-1.5"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Simpan ke Katalog</span>
@@ -724,7 +740,7 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                 Area Pratinjau Metadata
               </h3>
               <p className="text-xs text-[#7E6F64] max-w-xs leading-relaxed">
-                Pindai barcode buku atau masukkan nomor ISBN untuk menarik metadata bibliografi dari Open Library & Google Books.
+                Pindai barcode buku atau masukkan ISBN untuk mencari metadata di Open Library, Google Books, dan katalog Perpustakaan Jakarta.
               </p>
             </div>
           )}

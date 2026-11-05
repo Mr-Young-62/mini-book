@@ -29,6 +29,7 @@ export const MembersPage: React.FC<MembersPageProps> = ({ userRole }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [tierFilter, setTierFilter] = useState<string>('all');
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // New member modal
   const [showAddModal, setShowAddModal] = useState(false);
@@ -47,11 +48,13 @@ export const MembersPage: React.FC<MembersPageProps> = ({ userRole }) => {
 
   const loadMembers = async () => {
     setLoading(true);
+    setActionError(null);
     try {
       const data = await LibraryService.getMembers();
       setMembers(data);
     } catch (err) {
       console.error('Error fetching members:', err);
+      setActionError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -74,30 +77,39 @@ export const MembersPage: React.FC<MembersPageProps> = ({ userRole }) => {
     e.preventDefault();
     if (!newName || !newEmail) return;
 
-    await LibraryService.addMember({
-      full_name: newName,
-      email: newEmail,
-      phone: newPhone,
-      address: newAddress,
-      registration_date: new Date().toISOString().split('T')[0],
-      membership_expiration_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      membership_type: newType,
-      status: 'Active',
-      profile_photo_url: `https://images.unsplash.com/photo-${1534528741775 + Math.floor(Math.random() * 1000)}?w=150`,
-    });
+    setActionError(null);
+    try {
+      await LibraryService.addMember({
+        full_name: newName.trim(),
+        email: newEmail.trim(),
+        phone: newPhone.trim(),
+        address: newAddress.trim(),
+        registration_date: new Date().toISOString().split('T')[0],
+        membership_expiration_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        membership_type: newType,
+        status: 'Active',
+      });
 
-    setShowAddModal(false);
-    setNewName('');
-    setNewEmail('');
-    setNewPhone('');
-    setNewAddress('');
-    loadMembers();
+      setShowAddModal(false);
+      setNewName('');
+      setNewEmail('');
+      setNewPhone('');
+      setNewAddress('');
+      await loadMembers();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    }
   };
 
   const handleToggleStatus = async (member: Member) => {
     const nextStatus: MemberStatus = member.status === 'Active' ? 'Suspended' : 'Active';
-    await LibraryService.updateMember(member.id, { status: nextStatus });
-    loadMembers();
+    setActionError(null);
+    try {
+      await LibraryService.updateMember(member.id, { status: nextStatus });
+      await loadMembers();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    }
   };
 
   return (
@@ -109,20 +121,27 @@ export const MembersPage: React.FC<MembersPageProps> = ({ userRole }) => {
             Library Member Management
           </h1>
           <p className="text-xs text-[#7E6F64]">
-            Register patrons, manage membership credentials, issue digital member cards, and review borrowing eligibility.
+            Register patrons, manage membership credentials, and issue digital member cards.
           </p>
         </div>
 
         {userRole !== 'Member' && (
           <button
             onClick={() => setShowAddModal(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-semibold rounded-lg shadow-2xs transition-colors whitespace-nowrap"
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#c62828] hover:bg-[#a61f1f] text-white text-xs font-semibold rounded-lg shadow-2xs transition-colors whitespace-nowrap"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Register New Member</span>
           </button>
         )}
       </div>
+
+      {actionError && (
+        <div role="alert" className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{actionError}</span>
+        </div>
+      )}
 
       {/* Toolbar */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3 rounded-xl border border-[#E8E2D9] shadow-2xs">
@@ -133,7 +152,7 @@ export const MembersPage: React.FC<MembersPageProps> = ({ userRole }) => {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search member by name, code (MEM-...), or email..."
-            className="w-full pl-9 pr-4 py-2 text-xs bg-[#FAF8F5] border border-[#E5E0D8] rounded-lg focus:outline-hidden focus:border-[#EA580C]"
+            className="w-full pl-9 pr-4 py-2 text-xs bg-[#FAF8F5] border border-[#E5E0D8] rounded-lg focus:outline-hidden focus:border-[#c62828]"
           />
         </div>
 
@@ -166,13 +185,13 @@ export const MembersPage: React.FC<MembersPageProps> = ({ userRole }) => {
             </h4>
             <p className="text-xs text-[#7E6F64] mb-4">
               {members.length === 0
-                ? 'Register your patrons to issue digital member cards and manage circulation loans.'
+                ? 'Register patrons to create and manage digital library membership cards.'
                 : 'No members match your current search query.'}
             </p>
             {members.length === 0 && userRole !== 'Member' && (
               <button
                 onClick={() => setShowAddModal(true)}
-                className="px-4 py-2 bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-semibold rounded-lg shadow-2xs"
+                className="px-4 py-2 bg-[#c62828] hover:bg-[#a61f1f] text-white text-xs font-semibold rounded-lg shadow-2xs"
               >
                 Register First Member
               </button>
@@ -187,12 +206,12 @@ export const MembersPage: React.FC<MembersPageProps> = ({ userRole }) => {
               <div>
                 <div className="flex items-start justify-between gap-2 mb-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-[#FFEDD5] border border-[#EA580C]/30 flex items-center justify-center text-[#EA580C] font-bold text-sm">
+                    <div className="w-10 h-10 rounded-full bg-[#fce4e4] border border-[#c62828]/30 flex items-center justify-center text-[#c62828] font-bold text-sm">
                       {member.full_name.slice(0, 2).toUpperCase()}
                     </div>
                     <div>
                       <h3 className="font-bold text-xs text-[#2C221E]">{member.full_name}</h3>
-                      <span className="font-mono text-[10px] text-[#EA580C] font-semibold">
+                      <span className="font-mono text-[10px] text-[#c62828] font-semibold">
                         {member.member_code}
                       </span>
                     </div>
@@ -229,18 +248,11 @@ export const MembersPage: React.FC<MembersPageProps> = ({ userRole }) => {
                 </div>
               </div>
 
-              <div className="mt-4 pt-3 border-t border-[#F0ECE4] flex items-center justify-between text-xs">
-                <div>
-                  <span className="text-[10px] text-[#A89F91] block">Active Loans</span>
-                  <span className="font-mono font-bold text-[#2C221E] tabular-nums">
-                    {member.active_loans_count || 0} / 5 books
-                  </span>
-                </div>
-
+              <div className="mt-4 pt-3 border-t border-[#F0ECE4] flex items-center justify-end text-xs">
                 <div className="flex items-center gap-1.5">
                   <button
                     onClick={() => setCardMember(member)}
-                    className="p-1.5 text-[#7E6F64] hover:text-[#EA580C] hover:bg-[#FAF8F5] rounded-md transition-colors"
+                    className="p-1.5 text-[#7E6F64] hover:text-[#c62828] hover:bg-[#FAF8F5] rounded-md transition-colors"
                     title="View Digital Member Card"
                   >
                     <CreditCard className="w-4 h-4" />
@@ -357,7 +369,7 @@ export const MembersPage: React.FC<MembersPageProps> = ({ userRole }) => {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-semibold rounded-lg shadow-2xs"
+                  className="px-4 py-2 bg-[#c62828] hover:bg-[#a61f1f] text-white text-xs font-semibold rounded-lg shadow-2xs"
                 >
                   Create Member Account
                 </button>
@@ -383,14 +395,14 @@ export const MembersPage: React.FC<MembersPageProps> = ({ userRole }) => {
               {/* Card Header */}
               <div className="flex items-start justify-between">
                 <div>
-                  <span className="text-[9px] uppercase tracking-widest text-[#FDBA74] font-semibold">
-                    Readowl Library Patron
+                  <span className="text-[9px] uppercase tracking-widest text-[#fca5a5] font-semibold">
+                    MeelieFont Library Patron
                   </span>
                   <h4 className="text-sm font-bold text-white tracking-wide mt-0.5">
                     {cardMember.full_name}
                   </h4>
                 </div>
-                <span className="text-[10px] font-mono font-bold bg-white/10 px-2 py-0.5 rounded text-[#FDBA74]">
+                <span className="text-[10px] font-mono font-bold bg-white/10 px-2 py-0.5 rounded text-[#fca5a5]">
                   {cardMember.membership_type}
                 </span>
               </div>
@@ -421,7 +433,7 @@ export const MembersPage: React.FC<MembersPageProps> = ({ userRole }) => {
               </button>
               <button
                 onClick={() => window.print()}
-                className="px-4 py-2 bg-[#EA580C] hover:bg-[#C2410C] text-white text-xs font-semibold rounded-lg shadow-2xs flex items-center gap-1.5"
+                className="px-4 py-2 bg-[#c62828] hover:bg-[#a61f1f] text-white text-xs font-semibold rounded-lg shadow-2xs flex items-center gap-1.5"
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>Print Card</span>

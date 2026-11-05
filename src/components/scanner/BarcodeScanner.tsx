@@ -353,7 +353,7 @@ export function BarcodeScanner({ onDetected, onScan, onClose, active = true, isP
                 key={`${choice.rawValue}-${index}`}
                 type="button"
                 onClick={() => chooseImageResult(choice)}
-                className="w-full rounded-md border border-[#E5E0D8] bg-white px-2 py-1.5 text-left font-mono text-[11px] hover:border-[#EA580C]"
+                className="w-full rounded-md border border-[#E5E0D8] bg-white px-2 py-1.5 text-left font-mono text-[11px] hover:border-[#c62828]"
               >
                 {choice.format} · {choice.rawValue}
               </button>

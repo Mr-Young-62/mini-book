@@ -61,6 +61,25 @@ export function convertIsbn10To13(isbn10: string): string {
 export function formatIsbn(isbn: string): string {
   const cleaned = cleanIsbn(isbn);
   if (cleaned.length === 13) {
+    if (cleaned.startsWith('978634')) {
+      const registrationRange = Number(cleaned.slice(6));
+      const registrantLength =
+        registrationRange <= 599999 ? 2
+          : registrationRange >= 2000000 && registrationRange <= 3999999 ? 3
+            : registrationRange >= 7000000 && registrationRange <= 8499999 ? 4
+              : registrationRange >= 9600000 && registrationRange <= 9999999 ? 5
+                : 0;
+      if (registrantLength > 0) {
+        const registrantEnd = 6 + registrantLength;
+        return `${cleaned.slice(0, 3)}-${cleaned.slice(3, 6)}-${cleaned.slice(6, registrantEnd)}-${cleaned.slice(registrantEnd, 12)}-${cleaned.slice(12)}`;
+      }
+    }
+    if (cleaned.startsWith('978602')) {
+      const registrantRange = Number(cleaned.slice(6, 8));
+      if (registrantRange >= 62 && registrantRange <= 69) {
+        return `${cleaned.slice(0, 3)}-${cleaned.slice(3, 6)}-${cleaned.slice(6, 10)}-${cleaned.slice(10, 12)}-${cleaned.slice(12)}`;
+      }
+    }
     return `${cleaned.slice(0, 3)}-${cleaned.slice(3, 4)}-${cleaned.slice(4, 7)}-${cleaned.slice(7, 12)}-${cleaned.slice(12)}`;
   }
   if (cleaned.length === 10) {

@@ -90,7 +90,7 @@ const ShelfSection: React.FC<{ title: string; books: ShelfBook[]; actionLabel?: 
       {actionLabel && (
         <button
           onClick={onAction}
-          className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#7C2D12] hover:text-[#B45309]"
+          className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#7f1d1d] hover:text-[#B45309]"
         >
           <span>{actionLabel}</span>
           <ArrowRight className="w-3.5 h-3.5" />
@@ -115,7 +115,7 @@ const ShelfSection: React.FC<{ title: string; books: ShelfBook[]; actionLabel?: 
                   <BookCover coverUrl={book.cover_url} title={book.title} author={book.author} className="object-cover" />
                   <div className="absolute inset-y-0 left-0 w-[8px] bg-black/10" />
                   <span className={`absolute right-2 top-2 rounded-full px-1.5 py-0.5 text-[8px] font-semibold ${book.isAvailable ? 'bg-emerald-600/90 text-white' : 'bg-rose-700/90 text-white'}`}>
-                    {book.isAvailable ? 'Available' : 'Loaned'}
+                    {book.isAvailable ? 'Available' : 'Unavailable'}
                   </span>
                 </div>
                 <div className="bg-[#F5EBDD] px-2 py-2 text-center">
@@ -142,7 +142,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const [books, setBooks] = useState<Book[]>([]);
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
-  const [libraryName, setLibraryName] = useState('Readowl');
+  const [libraryName, setLibraryName] = useState('MeelieFont Library');
 
   useEffect(() => {
     const loadDashboard = async () => {
@@ -150,12 +150,12 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       try {
         const [libraryBooks, recentLogs] = await Promise.all([
           LibraryService.getBooks(),
-          LibraryService.getLogs(),
+          userRole === 'Member' ? Promise.resolve([]) : LibraryService.getLogs(),
         ]);
         setBooks(libraryBooks);
         setLogs(recentLogs);
         const settings = LibraryService.getSettings();
-        setLibraryName(settings.library_info?.name || 'Readowl');
+        setLibraryName(settings.library_info?.name || 'MeelieFont Library');
       } catch (error) {
         console.error('Error loading dashboard data:', error);
       } finally {
@@ -164,18 +164,21 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     };
 
     void loadDashboard();
-  }, []);
+  }, [userRole]);
 
   const metrics = useMemo(() => {
     const totalCopies = books.reduce((sum, book) => sum + (book.copies?.length || 0), 0);
     const availableCopies = books.reduce((sum, book) => sum + (book.copies?.filter((copy) => copy.status === 'Available').length || 0), 0);
-    const borrowedCopies = books.reduce((sum, book) => sum + (book.copies?.filter((copy) => copy.status === 'Borrowed').length || 0), 0);
+    const maintenanceCopies = books.reduce(
+      (sum, book) => sum + (book.copies?.filter((copy) => copy.status === 'Maintenance' || copy.status === 'Damaged').length || 0),
+      0
+    );
 
     return {
       totalBooks: books.length,
       totalCopies,
       availableCopies,
-      borrowedCopies,
+      maintenanceCopies,
     };
   }, [books]);
 
@@ -199,7 +202,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     { label: 'Total titles', value: String(metrics.totalBooks), detail: 'cataloged books' },
     { label: 'Total copies', value: String(metrics.totalCopies), detail: 'physical items' },
     { label: 'Available', value: String(metrics.availableCopies), detail: 'ready on shelf' },
-    { label: 'Borrowed', value: String(metrics.borrowedCopies), detail: 'currently checked out' },
+    { label: 'Maintenance', value: String(metrics.maintenanceCopies), detail: 'copies needing attention' },
   ];
 
   return (
@@ -207,15 +210,15 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       <div className="rounded-[28px] bg-gradient-to-r from-[#2C221E] via-[#3A2D27] to-[#53453C] p-5 text-white shadow-[0_18px_32px_rgba(63,45,35,0.18)]">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="max-w-xl">
-            <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-[#F59E0B]/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#FCD7A4]">
+            <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-[#dc4444]/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#FCD7A4]">
               <Sparkles className="w-3 h-3" />
-              Readowl dashboard
+              MeelieFont Library
             </div>
             <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
               Welcome back to {libraryName}.
             </h1>
             <p className="mt-2 text-sm text-[#E7DCCF]">
-              Keep your collection organized, monitor active loans, and catalog new titles in seconds.
+              Keep your collection organized and catalog new titles in seconds.
             </p>
           </div>
 
@@ -223,7 +226,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             {userRole !== 'Member' && (
               <button
                 onClick={onScanClick}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#EA580C] px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#C2410C]"
+                className="inline-flex items-center gap-2 rounded-xl bg-[#c62828] px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#a61f1f]"
               >
                 <QrCode className="w-4 h-4" />
                 Scan ISBN
@@ -273,7 +276,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
               type="button"
               className={`rounded-full px-2.5 py-1.5 text-[11px] font-medium transition ${
                 tag === 'All books'
-                  ? 'bg-[#EA580C] text-white'
+                  ? 'bg-[#c62828] text-white'
                   : 'bg-[#F5F1EB] text-[#5B4A40] hover:bg-[#EAE2D8]'
               }`}
               onClick={() => onDashboardViewChange?.('all-books')}
@@ -288,7 +291,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
         <section className="rounded-[24px] border border-[#E8E2D9] bg-white p-4 shadow-[0_10px_20px_rgba(80,60,40,0.04)]">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-lg font-bold tracking-tight text-[#4F3D32]">Recently added</h2>
-            <button type="button" onClick={() => onNavigate('books')} className="text-[11px] font-semibold text-[#7C2D12] hover:text-[#B45309]">
+            <button type="button" onClick={() => onNavigate('books')} className="text-[11px] font-semibold text-[#7f1d1d] hover:text-[#B45309]">
               View all
             </button>
           </div>
@@ -373,7 +376,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
             onClick={onClick}
             className="flex items-center gap-3 rounded-[20px] border border-[#E8E2D9] bg-white p-3 text-left shadow-[0_8px_18px_rgba(80,60,40,0.04)] transition hover:border-[#DCCDB9] hover:-translate-y-0.5"
           >
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#F6EDE4] text-[#7C2D12]">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#F6EDE4] text-[#7f1d1d]">
               <Icon className="h-4 w-4" />
             </div>
             <div className="text-sm font-semibold text-[#2C221E]">{label}</div>
