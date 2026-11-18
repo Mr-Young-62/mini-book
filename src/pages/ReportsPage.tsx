@@ -5,8 +5,10 @@ import {
 } from 'lucide-react';
 import { LibraryService } from '../services/libraryService';
 import { BookCopy } from '../types/library';
+import { downloadCsv } from '../lib/csv';
 
 export const ReportsPage: React.FC = () => {
+  const currency = LibraryService.getSettings().library_info.currency || 'IDR';
   const [copies, setCopies] = useState<BookCopy[]>([]);
   const [memberCount, setMemberCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -20,10 +22,10 @@ export const ReportsPage: React.FC = () => {
     try {
       const [c, members] = await Promise.all([
         LibraryService.getCopies(),
-        LibraryService.getMembers(),
+        LibraryService.countMembers(),
       ]);
       setCopies(c);
-      setMemberCount(members.length);
+      setMemberCount(members);
     } catch (err) {
       console.error('Error loading reports data:', err);
     } finally {
@@ -45,27 +47,14 @@ export const ReportsPage: React.FC = () => {
   const totalValuation = copies.reduce((sum, copy) => sum + (copy.acquisition_price || 0), 0);
   const maintenanceCount = copies.filter((copy) => copy.status === 'Maintenance' || copy.status === 'Damaged').length;
 
-  const exportCsv = (filename: string, headers: string[], rows: (string | number)[][]) => {
-    const csvContent =
-      'data:text/csv;charset=utf-8,' +
-      [headers.join(','), ...rows.map((r) => r.map((c) => `"${c}"`).join(','))].join('\n');
-    const encoded = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encoded);
-    link.setAttribute('download', `${filename}_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
   const handleExportValuationCsv = () => {
-    const headers = ['Category', 'Physical Copies Count', 'Total Acquired Value ($)'];
+    const headers = ['Category', 'Physical Copies Count', `Total Acquired Value (${currency})`];
     const rows = Object.entries(categoryValuationMap).map(([cat, data]) => [
       cat,
       data.count,
       data.totalCost.toFixed(2),
     ]);
-    exportCsv('meeliefont_valuation_report', headers, rows);
+    downloadCsv('meeliefont_valuation_report', headers, rows);
   };
 
   return (
@@ -94,7 +83,7 @@ export const ReportsPage: React.FC = () => {
         <div className="bg-white border border-[#E8E2D9] rounded-xl p-4 shadow-2xs">
           <span className="text-[11px] text-[#7E6F64] block mb-1">Total Valuation</span>
           <div className="text-xl font-bold font-mono text-[#2C221E] tabular-nums">
-            ${totalValuation.toFixed(2)}
+            {currency} {totalValuation.toFixed(2)}
           </div>
           <span className="text-[10px] text-[#A89F91]">{loading ? 'Loading...' : `${copies.length} cataloged assets`}</span>
         </div>
@@ -138,7 +127,7 @@ export const ReportsPage: React.FC = () => {
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-semibold text-[#2C221E]">{category}</span>
                     <span className="font-mono text-[#5A4D44] tabular-nums">
-                      ${data.totalCost.toFixed(2)} ({data.count} copies)
+                      {currency} {data.totalCost.toFixed(2)} ({data.count} copies)
                     </span>
                   </div>
                   <div className="w-full h-2 rounded-full bg-[#FAF8F5] overflow-hidden border border-[#E8E2D9]">

@@ -1,5 +1,11 @@
-import { cleanIsbn, isValidIsbn10, isValidIsbn13, isbn10To13, isbn13To10 } from './isbnTools';
-import { extractIsbnCandidate } from './isbnValidator';
+import {
+  cleanIsbn,
+  extractIsbnCandidate,
+  isbn10To13,
+  isbn13To10,
+  isValidIsbn10,
+  isValidIsbn13,
+} from './isbnValidator';
 
 export type ResolvedCode =
   | { kind: 'isbn'; isbn13: string; isbn10?: string; raw: string }

@@ -197,10 +197,7 @@ export default function App() {
         {activeTab === 'dashboard' && (
           <DashboardPage
             userRole={activeRole}
-            onNavigateToBooks={() => setCurrentTab('books')}
-            onNavigateToMembers={() => setCurrentTab('members')}
-            onNavigateToReports={() => setCurrentTab('reports')}
-            onNavigateToSettings={() => setCurrentTab('settings')}
+            onNavigate={setCurrentTab}
           />
         )}
 

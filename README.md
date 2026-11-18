@@ -3,6 +3,8 @@
 
 MeelieFont is a lightweight library management system for schools, community libraries, research labs, and personal collections. It scans ISBN barcodes with a device camera or webcam, fetches book metadata from public APIs, and tracks physical copies separately from bibliographic records.
 
+> Audit progress, verification results, and the deployment checklist are tracked in [PROGRESS.md](./PROGRESS.md).
+
 ---
 
 ## 1. Core Architecture
@@ -28,9 +30,7 @@ mini-book/
 │   │   ├── 20261104000000_circulation_logic.sql # Historical catalog and circulation procedures
 │   │   └── 20261104190500_disable_circulation.sql # Disables circulation operations and preserves history
 │   ├── functions/
-│   │   ├── book-metadata/   # Edge Function for server-side ISBN lookup
-│   │   ├── reports/         # Edge Function for library inventory summaries
-│   │   └── admin/           # Edge Function for administrative tasks
+│   │   └── book-metadata/   # Edge Function for server-side ISBN lookup
 │   ├── seed.sql             # Development role and settings seeds
 │   └── config.toml          # Local Supabase CLI configuration
 ├── src-tauri/               # Desktop wrapper configuration (no package build script yet)
@@ -45,12 +45,13 @@ mini-book/
 - **Smart ISBN Barcode Scanner**:
   - Live video camera scanning via `@zxing/library` with real-time targeting laser and audio feedback.
   - Multi-source fallback: searches **Open Library** and **Google Books**, then the **Perpustakaan Jakarta** catalog for ISBN records missing from global APIs.
-  - One-click test barcodes for instant testing without webcam hardware.
+  - One-click test barcodes for instant testing without webcam hardware (development builds only).
   - Mathematical checksum verification for ISBN-10 and ISBN-13 (EAN-13).
   - Normalization of ISBN-10 to standard ISBN-13.
 - **Bibliographic vs. Physical Inventory Separation**:
   - One bibliographic record (Title, ISBN, Author, Publisher) links to $N$ physical copies.
   - Each copy has a unique inventory code (`RDW-000001`, `RDW-000002`, etc.), individual barcode, shelf location, rack number, and condition state.
+  - Removing a book that still has physical copies archives its catalog record instead of deleting the copies, preserving acquisition history.
 - **Digital Bookshelf Visualization**:
   - Wooden bookshelf view with realistic 3D spines, covers, and availability ribbons.
   - Modern grid view and dense tabular view.
@@ -110,16 +111,19 @@ For a remote project, disable public email sign-ups in Supabase Auth; the app on
 
 ## 4. Supabase Edge Functions Deployment
 
-Deploy edge functions directly using Supabase CLI:
+Deploy the ISBN metadata edge function directly using Supabase CLI:
 ```bash
 # Deploy ISBN metadata edge function
 npx supabase functions deploy book-metadata
 
-# Deploy aggregated reporting function
-npx supabase functions deploy reports
+# Set the server-side Google Books key (never expose it to the browser)
+npx supabase secrets set GOOGLE_BOOKS_API_KEY=your_key_here
+```
 
-# Deploy admin operations function
-npx supabase functions deploy admin
+The `reports` and `admin` functions were removed from this repository because the app never called them: `reports` exposed aggregate data without an authentication check, and `admin` allowed any signed-in user to assign roles through the service role key. If either is still deployed in a remote Supabase project, delete it with:
+```bash
+npx supabase functions delete reports
+npx supabase functions delete admin
 ```
 
 The `book-metadata` function fetches the Jakarta catalog server-side because that site does not allow browser cross-origin requests. It verifies the requested ISBN against the catalog detail record before returning metadata. The Jakarta fallback therefore requires a configured Supabase project and a deployed, current `book-metadata` function.
@@ -141,7 +145,11 @@ npx cap open android
 ```
 
 ### Android updates without USB
-Tagged releases build a signed APK with GitHub Actions, upload it to a public Google Cloud Storage bucket, and send a Firebase Cloud Messaging (FCM) notification to Android devices subscribed to the update topic. The source repository can remain private. When tapped, the notification opens the APK download; Android still asks the user to confirm installation.
+Tagged releases build a signed APK with GitHub Actions, upload it to a public Google Cloud Storage bucket, verify the uploaded object, publish an update manifest (`latest.json`) to the same bucket, and send a Firebase Cloud Messaging (FCM) notification to Android devices subscribed to the update topic. The source repository can remain private. The manifest is the source of truth for version checks; FCM is only a best-effort notification. When tapped, the notification opens the APK download; Android still asks the user to confirm installation.
+
+**Release version identity.** `versionName` comes from the tag (`v1.2.3` → `1.2.3`). `versionCode` is computed deterministically as `MAJOR*1000000 + MINOR*1000 + PATCH` (`v1.2.3` → `1002003`) by `scripts/version-utils.mjs`, replacing the old `GITHUB_RUN_NUMBER` scheme, which was not monotonic when an old tag's workflow was re-run. MINOR and PATCH must be 0–999, pre-release suffixes (`v1.2.3-rc.1`) are rejected, and the workflow refuses to publish a `latest.json` whose `versionCode` is not strictly greater than the currently published one. The same computed values are injected into the web bundle as `VITE_APP_VERSION` / `VITE_APP_VERSION_CODE`, so the app can compare its own installed version against the manifest at runtime.
+
+**Update manifest.** After the APK upload is verified (HTTPS `content-length` must match the local file), CI generates `latest.json` (`scripts/generate-latest-manifest.mjs`) containing `schemaVersion`, `app` (`org.readowl.library`), `version`, `versionCode`, `releaseDate`, `downloadUrl` (HTTPS + host/path allowlist), `sha256`, `fileSize`, `changelog`, `forceUpdate`, and optionally `minimumSupportedVersionCode`. The manifest is published only after the APK and GitHub Release are in place, with `Cache-Control: public,max-age=60,must-revalidate` so clients never see it stale. The APK object keeps `Cache-Control: public,max-age=31536000,immutable` because release APK URLs are never reused for different content. See `READOWL-UPDATER-PLAN.md` for the in-app updater design that consumes this manifest.
 
 Before creating a release:
 1. Register an Android app in Firebase using the existing package ID `org.readowl.library`, download its `google-services.json`, and enable the Firebase Cloud Messaging API.
@@ -154,7 +162,7 @@ Before creating a release:
    - `FIREBASE_SERVICE_ACCOUNT`: Firebase service-account JSON with permission to send FCM messages.
    - `FIREBASE_PROJECT_ID`: Firebase project ID.
    - `APK_STORAGE_BUCKET`: the dedicated public APK bucket name.
-5. Push a version tag such as `v1.0.1`. The workflow uploads `MeelieFont-v1.0.1.apk` and notifies subscribed devices.
+5. Push a version tag such as `v1.0.1`. The workflow uploads `MeelieFont-v1.0.1.apk`, verifies it, publishes `latest.json`, and notifies subscribed devices.
 
 The app asks Android for notification permission and subscribes to the `meeliefont-updates` FCM topic. Users must allow notifications and permit APK installation from their browser. Android does not allow silent APK installation. A device currently running a USB-installed debug APK may need that build uninstalled before the first release-signed APK can be installed; later updates work over the same signing key. The Android package ID is intentionally unchanged so installed copies remain eligible for in-place updates.
 

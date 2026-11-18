@@ -61,8 +61,8 @@ if ($url -and $key) {
     Skip "Supabase"
 }
 
-# GOOGLE BOOKS
-$googleKey = $cfg["VITE_GOOGLE_BOOKS_API_KEY"]
+# GOOGLE BOOKS (server-side secret)
+$googleKey = $cfg["GOOGLE_BOOKS_API_KEY"]
 
 if ($googleKey) {
     try {
@@ -75,25 +75,6 @@ if ($googleKey) {
     }
 } else {
     Skip "Google Books API"
-}
-
-# GEMINI
-$geminiKey = $cfg["GEMINI_API_KEY"]
-
-if ($geminiKey) {
-    try {
-        $response = Invoke-RestMethod `
-            -Uri "https://generativelanguage.googleapis.com/v1beta/models" `
-            -Headers @{ "x-goog-api-key" = $geminiKey } `
-            -TimeoutSec 20
-
-        Pass "Gemini API"
-    }
-    catch {
-        Fail "Gemini API" $_.Exception.Message
-    }
-} else {
-    Skip "Gemini API"
 }
 
 # APPLICATION HOSTING

@@ -1,6 +1,5 @@
 {
   "name": "MeelieFont — Digital Library",
   "description": "Digital library management with ISBN barcode scanning, Supabase backend, digital bookshelf visualization, and physical inventory management.",
-  "requestFramePermissions": ["camera"],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "requestFramePermissions": ["camera"]
 }

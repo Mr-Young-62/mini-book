@@ -15,12 +15,14 @@ import {
 } from 'lucide-react';
 import { LibraryService } from '../services/libraryService';
 import { BookCopy, CopyStatus, UserRole } from '../types/library';
+import { downloadCsv } from '../lib/csv';
 
 interface InventoryPageProps {
   userRole: UserRole;
 }
 
 export const InventoryPage: React.FC<InventoryPageProps> = ({ userRole }) => {
+  const currency = LibraryService.getSettings().library_info.currency || 'IDR';
   const [copies, setCopies] = useState<BookCopy[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -77,10 +79,10 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({ userRole }) => {
   };
 
   const exportInventoryCsv = () => {
-    const headers = ['Inventory Code', 'Title', 'ISBN-13', 'Shelf', 'Rack', 'Status', 'Condition', 'Price ($)', 'Acquisition Date'];
+    const headers = ['Inventory Code', 'Title', 'ISBN-13', 'Shelf', 'Rack', 'Status', 'Condition', `Price (${currency})`, 'Acquisition Date'];
     const rows = filteredCopies.map((c) => [
       c.inventory_code,
-      `"${(c.book?.title || '').replace(/"/g, '""')}"`,
+      c.book?.title || '',
       c.book?.isbn_13 || '',
       c.shelf_location,
       c.rack_number,
@@ -90,14 +92,7 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({ userRole }) => {
       c.acquisition_date,
     ]);
 
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `meeliefont_inventory_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    downloadCsv('meeliefont_inventory', headers, rows);
   };
 
   return (
@@ -161,7 +156,7 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({ userRole }) => {
                 <th className="py-3 px-4">Location</th>
                 <th className="py-3 px-4">Condition</th>
                 <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4 text-right font-mono">Price</th>
+                <th className="py-3 px-4 text-right font-mono">Price ({currency})</th>
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
@@ -225,7 +220,7 @@ export const InventoryPage: React.FC<InventoryPageProps> = ({ userRole }) => {
                       </span>
                     </td>
                     <td className="py-3 px-4 text-right font-mono tabular-nums text-[#5A4D44]">
-                      ${copy.acquisition_price?.toFixed(2) || '0.00'}
+                      {currency} {copy.acquisition_price?.toFixed(2) || '0.00'}
                     </td>
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-1.5">

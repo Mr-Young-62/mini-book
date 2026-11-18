@@ -21,10 +21,10 @@ export const defaultSettings: LibrarySettings = {
   library_info: {
     name: 'MeelieFont Library',
     code: 'RDW-01',
-    address: '452 Bookkeeper Way, Alexandria, VA',
-    phone: '+1 (555) 234-5678',
+    address: '',
+    phone: '',
     email: '',
-    currency: '$',
+    currency: 'IDR',
   },
   inventory_config: {
     code_prefix: 'RDW',
@@ -85,17 +85,34 @@ export class LibraryService {
           *,
           publisher:publishers(id, name),
           authors:book_authors(author:authors(id, name)),
-          categories:book_categories(category:categories(id, name)),
-          copies:book_copies(*)
+          categories:book_categories(category:categories(id, name))
         `)
+        .is('deleted_at', null)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      return (data || []).map((b: any) => ({
+
+      const books = data || [];
+      const copiesByBook = new Map<string, any[]>();
+      if (books.length > 0) {
+        // Read from the catalog-safe view so Members never receive acquisition data.
+        const { data: copies, error: copiesError } = await supabase
+          .from('book_copies_public')
+          .select('*')
+          .in('book_id', books.map((book: any) => book.id));
+        if (copiesError) throw copiesError;
+        for (const copy of copies || []) {
+          const list = copiesByBook.get(copy.book_id) || [];
+          list.push(copy);
+          copiesByBook.set(copy.book_id, list);
+        }
+      }
+
+      return books.map((b: any) => ({
         ...b,
         authors: b.authors?.map((a: any) => a.author).filter(Boolean) || [],
         categories: b.categories?.map((c: any) => c.category).filter(Boolean) || [],
-        copies: b.copies || [],
+        copies: copiesByBook.get(b.id) || [],
       }));
     }
 
@@ -103,10 +120,12 @@ export class LibraryService {
     const books: Book[] = getLocal(STORAGE_KEY_BOOKS, initialBooks);
     const copies: BookCopy[] = getLocal(STORAGE_KEY_COPIES, initialCopies);
 
-    return books.map((b) => ({
-      ...b,
-      copies: copies.filter((c) => c.book_id === b.id),
-    }));
+    return books
+      .filter((b) => !b.deleted_at)
+      .map((b) => ({
+        ...b,
+        copies: copies.filter((c) => c.book_id === b.id),
+      }));
   }
 
   static async getBookByIsbn(isbn: string): Promise<Book | null> {
@@ -120,24 +139,31 @@ export class LibraryService {
           *,
           publisher:publishers(id, name),
           authors:book_authors(author:authors(id, name)),
-          categories:book_categories(category:categories(id, name)),
-          copies:book_copies(*)
+          categories:book_categories(category:categories(id, name))
         `)
         .eq('isbn_13', isbn13)
+        .is('deleted_at', null)
         .maybeSingle();
 
       if (error) throw error;
       if (!data) return null;
+
+      const { data: copies, error: copiesError } = await supabase
+        .from('book_copies_public')
+        .select('*')
+        .eq('book_id', data.id);
+      if (copiesError) throw copiesError;
+
       return {
         ...data,
         authors: (data as any).authors?.map((a: any) => a.author).filter(Boolean) || [],
         categories: (data as any).categories?.map((c: any) => c.category).filter(Boolean) || [],
-        copies: (data as any).copies || [],
+        copies: copies || [],
       };
     }
 
     const books = getLocal<Book[]>(STORAGE_KEY_BOOKS, initialBooks);
-    return books.find((b) => b.isbn_13 === isbn13 || b.isbn_10 === isbn) || null;
+    return books.find((b) => !b.deleted_at && (b.isbn_13 === isbn13 || b.isbn_10 === isbn)) || null;
   }
 
   static async addBookWithCopies(
@@ -234,8 +260,9 @@ export class LibraryService {
     const originalBooks = books.map((book) => ({ ...book }));
     const originalCopies = copies.map((copy) => ({ ...copy }));
 
-    // Check if book already exists
-    let existingBook = books.find((b) => b.isbn_13 === isbn13);
+    // Check if an active book already exists. Archived records are ignored so
+    // re-cataloging a removed ISBN creates a fresh active record.
+    let existingBook = books.find((b) => !b.deleted_at && b.isbn_13 === isbn13);
     let bookId = existingBook?.id || crypto.randomUUID();
 
     if (!existingBook) {
@@ -324,6 +351,32 @@ export class LibraryService {
   static async deleteBook(bookId: string): Promise<boolean> {
     if (isSupabaseConfigured) {
       if (!supabase) throw new Error('Supabase is configured but the client could not be initialized.');
+
+      const { count, error: countError } = await supabase
+        .from('book_copies')
+        .select('id', { count: 'exact', head: true })
+        .eq('book_id', bookId);
+      if (countError) throw countError;
+
+      // Keep copies and acquisition history. Only the catalog record is archived.
+      if ((count ?? 0) > 0) {
+        const { data, error } = await supabase
+          .from('books')
+          .update({ deleted_at: new Date().toISOString() })
+          .eq('id', bookId)
+          .is('deleted_at', null)
+          .select('id')
+          .maybeSingle();
+        if (error) throw error;
+        if (!data) return false;
+        await this.logActivity(
+          'BOOK_ARCHIVED',
+          'books',
+          `Archived book record ${bookId}; physical copies and acquisition history retained`,
+        );
+        return true;
+      }
+
       const { data, error } = await supabase.from('books').delete().eq('id', bookId).select('id').maybeSingle();
       if (error) throw error;
       if (!data) return false;
@@ -333,7 +386,23 @@ export class LibraryService {
 
     const books = getLocal<Book[]>(STORAGE_KEY_BOOKS, initialBooks);
     const copies = getLocal<BookCopy[]>(STORAGE_KEY_COPIES, initialCopies);
-    if (!books.some((book) => book.id === bookId)) return false;
+    const book = books.find((b) => b.id === bookId);
+    if (!book) return false;
+
+    const bookCopies = copies.filter((c) => c.book_id === bookId);
+    if (bookCopies.length > 0) {
+      const archivedBooks = books.map((b) =>
+        b.id === bookId ? { ...b, deleted_at: new Date().toISOString() } : b,
+      );
+      setLocal(STORAGE_KEY_BOOKS, archivedBooks);
+      await this.logActivity(
+        'BOOK_ARCHIVED',
+        'books',
+        `Archived book record ${bookId}; physical copies and acquisition history retained`,
+      );
+      return true;
+    }
+
     const originalBooks = [...books];
     const originalCopies = [...copies];
 
@@ -392,7 +461,7 @@ export class LibraryService {
       }));
     }
 
-    const books = await this.getBooks();
+    const books = getLocal<Book[]>(STORAGE_KEY_BOOKS, initialBooks);
     const booksMap = new Map(books.map((b) => [b.id, b]));
     const copies = getLocal<BookCopy[]>(STORAGE_KEY_COPIES, initialCopies);
 
@@ -454,6 +523,20 @@ export class LibraryService {
     }
 
     return getLocal<Member[]>(STORAGE_KEY_MEMBERS, initialMembers);
+  }
+
+  static async countMembers(): Promise<number> {
+    if (isSupabaseConfigured) {
+      if (!supabase) throw new Error('Supabase is configured but the client could not be initialized.');
+      // Only fetch the count so personal member data never reaches the browser.
+      const { count, error } = await supabase
+        .from('members')
+        .select('id', { count: 'exact', head: true });
+      if (error) throw error;
+      return count ?? 0;
+    }
+
+    return getLocal<Member[]>(STORAGE_KEY_MEMBERS, initialMembers).length;
   }
 
   static async addMember(memberData: Omit<Member, 'id' | 'member_code' | 'created_at'>): Promise<Member> {
@@ -596,6 +679,11 @@ export class LibraryService {
     const libraryInfo = { ...defaultSettings.library_info, ...stored.library_info };
     if (libraryInfo.name === 'Readowl Community Library') libraryInfo.name = 'MeelieFont Library';
     if (libraryInfo.email === 'contact@readowl.library') libraryInfo.email = '';
+    // Normalize the historical seed values for installations that still have
+    // them in local storage. Values edited by the user are left untouched.
+    if (libraryInfo.address === '452 Bookkeeper Way, Alexandria, VA') libraryInfo.address = '';
+    if (libraryInfo.phone === '+1 (555) 234-5678') libraryInfo.phone = '';
+    if (libraryInfo.currency === '$') libraryInfo.currency = 'IDR';
     return {
       library_info: libraryInfo,
       inventory_config: { ...defaultSettings.inventory_config, ...stored.inventory_config },

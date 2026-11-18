@@ -9,3 +9,4 @@ coverage/
 android/app/google-services.json
 android/app/*.jks
 *.keystore
+supabase/.temp/

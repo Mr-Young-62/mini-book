@@ -2,6 +2,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const envUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const envKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+export const buildTimeSupabaseUrl = envUrl;
 
 function getStoredConfig(): { url: string; key: string; disabled: boolean } {
   try {
@@ -24,15 +25,26 @@ function isValidConfig(url: string, key: string): boolean {
   );
 }
 
-const storedConfig = getStoredConfig();
-export let effectiveSupabaseUrl = storedConfig.disabled ? '' : storedConfig.url || envUrl;
-export let effectiveSupabaseKey = storedConfig.disabled ? '' : storedConfig.key || envKey;
-export let isSupabaseConfigured = isValidConfig(effectiveSupabaseUrl, effectiveSupabaseKey);
-export let supabase: SupabaseClient | null = createSupabaseClient(effectiveSupabaseUrl, effectiveSupabaseKey);
-export const metadataSupabase: SupabaseClient | null = createSupabaseClient(envUrl, envKey);
+function isServiceRoleKey(key: string): boolean {
+  if (/^sb_secret_/i.test(key)) return true;
+  const parts = key.split('.');
+  if (parts.length !== 3) return false;
+  try {
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=');
+    const payload = JSON.parse(atob(padded));
+    return payload?.role === 'service_role';
+  } catch {
+    return false;
+  }
+}
 
 function createSupabaseClient(url: string, key: string): SupabaseClient | null {
   if (!isValidConfig(url, key)) return null;
+  if (isServiceRoleKey(key)) {
+    console.error('Refusing to initialize Supabase with a service role key in the browser.');
+    return null;
+  }
   try {
     return createClient(url, key, {
       auth: {
@@ -45,6 +57,18 @@ function createSupabaseClient(url: string, key: string): SupabaseClient | null {
     return null;
   }
 }
+
+export let effectiveSupabaseUrl = '';
+export let effectiveSupabaseKey = '';
+export let isSupabaseConfigured = false;
+export let supabase: SupabaseClient | null = null;
+export const metadataSupabase: SupabaseClient | null = createSupabaseClient(envUrl, envKey);
+
+const storedConfig = getStoredConfig();
+effectiveSupabaseUrl = storedConfig.disabled ? '' : storedConfig.url || envUrl;
+effectiveSupabaseKey = storedConfig.disabled ? '' : storedConfig.key || envKey;
+isSupabaseConfigured = isValidConfig(effectiveSupabaseUrl, effectiveSupabaseKey);
+supabase = createSupabaseClient(effectiveSupabaseUrl, effectiveSupabaseKey);
 
 function refreshSupabaseClient(url: string, key: string): void {
   effectiveSupabaseUrl = url;
@@ -64,14 +88,32 @@ export function configureSupabase(url: string, key: string): { success: boolean;
     if (parsedUrl.protocol !== 'https:' && !isLocalDevelopment) {
       return { success: false, error: 'Supabase URL must use HTTPS (HTTP is allowed only for localhost).' };
     }
+
+    // Never send sign-in credentials to an arbitrary host. Allow the
+    // build-configured project, any Supabase-hosted project, or localhost.
+    let buildHost = '';
+    try {
+      buildHost = new URL(envUrl).hostname;
+    } catch {
+      // No build-time URL configured; fall back to the Supabase host check.
+    }
+    const isSupabaseHost = parsedUrl.hostname.endsWith('.supabase.co');
+    if (buildHost && parsedUrl.hostname !== buildHost && !isSupabaseHost && !isLocalDevelopment) {
+      return {
+        success: false,
+        error: `Supabase URL host "${parsedUrl.hostname}" is not allowed. Use the configured project or a *.supabase.co domain.`,
+      };
+    }
+
     if (!key || key.length < 20) {
       return { success: false, error: 'Invalid Supabase Publishable / Anon key format' };
     }
 
-    localStorage.setItem('readowl_supabase_url', url);
+    const normalizedUrl = `${parsedUrl.protocol}//${parsedUrl.host}`;
+    localStorage.setItem('readowl_supabase_url', normalizedUrl);
     localStorage.setItem('readowl_supabase_key', key);
     localStorage.removeItem('readowl_supabase_disabled');
-    refreshSupabaseClient(url, key);
+    refreshSupabaseClient(normalizedUrl, key);
     return { success: true };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };

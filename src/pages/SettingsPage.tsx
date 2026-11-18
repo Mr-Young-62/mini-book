@@ -17,6 +17,7 @@ import {
   isSupabaseConfigured,
   effectiveSupabaseUrl,
   effectiveSupabaseKey,
+  buildTimeSupabaseUrl,
   configureSupabase,
   resetSupabaseConfig,
 } from '../lib/supabase';
@@ -49,22 +50,52 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         const nextKey = supabaseKey.trim();
         configChanged = nextUrl !== effectiveSupabaseUrl || nextKey !== effectiveSupabaseKey;
         if (configChanged) {
+          let buildHost = '';
+          let nextHost = '';
+          try {
+            buildHost = new URL(buildTimeSupabaseUrl).hostname;
+          } catch {
+            // No build-time URL to compare against.
+          }
+          try {
+            nextHost = new URL(nextUrl).hostname;
+          } catch {
+            // configureSupabase will report the malformed URL.
+          }
+          if (buildHost && nextHost && nextHost !== buildHost) {
+            const confirmed = window.confirm(
+              `Koneksi Supabase akan diarahkan ke ${nextHost}. Kredensial login akan dikirim ke server tersebut. Lanjutkan?`,
+            );
+            if (!confirmed) {
+              setErrorMessage('Perubahan koneksi Supabase dibatalkan.');
+              return;
+            }
+          }
           const configResult = configureSupabase(nextUrl, nextKey);
           if (!configResult.success) {
             setErrorMessage(configResult.error || 'Failed to update Supabase configuration.');
             return;
           }
-          setSaveSuccessMessage('Supabase connection saved. Sign in, then save library settings to the cloud.');
-          setSaveSuccess(true);
-          onRefreshAppState();
-          return;
         }
       }
 
-      await LibraryService.updateSettings(settings);
-      setSaveSuccessMessage('Settings saved successfully!');
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
+      // Save the library settings in the same submit, including when the
+      // Supabase connection was just changed.
+      try {
+        await LibraryService.updateSettings(settings);
+        setSaveSuccessMessage(
+          configChanged
+            ? 'Supabase connection and library settings saved. Sign in to the new project if prompted.'
+            : 'Settings saved successfully!',
+        );
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 3000);
+      } catch (err: any) {
+        if (!configChanged) throw err;
+        setErrorMessage(
+          `Supabase connection saved, but library settings could not be saved to the cloud yet: ${err.message || 'unknown error'}. Sign in to the configured project and save again.`,
+        );
+      }
       onRefreshAppState();
     } catch (err: any) {
       setErrorMessage(err.message || 'Error saving settings.');

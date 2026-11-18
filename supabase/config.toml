@@ -1,5 +1,5 @@
-# Supabase configuration for Readowl Mini Digital Library
-project_id = "readowl-library"
+# Supabase configuration for MeelieFont Mini Digital Library
+project_id = "meeliefont-library"
 
 [api]
 enabled = true

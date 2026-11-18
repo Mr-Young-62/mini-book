@@ -1,4 +1,4 @@
-package com.getcapacitor.myapp;
+package org.readowl.library;
 
 import static org.junit.Assert.*;
 

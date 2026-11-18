@@ -10,6 +10,6 @@ ON CONFLICT (name) DO NOTHING;
 
 -- 2. Initial Settings
 INSERT INTO public.settings (setting_key, setting_value) VALUES
-('library_info', '{"name": "MeelieFont Library", "code": "RDW-01", "address": "452 Bookkeeper Way, Alexandria, VA", "phone": "+1 (555) 234-5678", "email": "", "currency": "$"}'::jsonb),
+('library_info', '{"name": "MeelieFont Library", "code": "RDW-01", "address": "", "phone": "", "email": "", "currency": "IDR"}'::jsonb),
 ('inventory_config', '{"code_prefix": "RDW", "barcode_format": "CODE128", "default_shelf": "Main Floor", "default_rack": "A-01"}'::jsonb)
 ON CONFLICT (setting_key) DO NOTHING;

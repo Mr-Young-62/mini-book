@@ -160,64 +160,12 @@ function mapEdgeResponse(data: EdgeMetadataResponse, isbn13: string, isbn10?: st
   return metadata;
 }
 
-async function fetchGoogleSearchFallback(isbn13: string, isbn10?: string): Promise<ScannedBookMetadata | null> {
-  const googleApiKey = (import.meta as any).env?.VITE_GOOGLE_CUSTOM_SEARCH_API_KEY;
-  const googleCx = (import.meta as any).env?.VITE_GOOGLE_CUSTOM_SEARCH_ENGINE_ID;
-
-  if (!googleApiKey || !googleCx) return null;
-
-  const queries = [
-    `"${isbn13}"`,
-    ...(isbn10 ? [`"${isbn10}"`] : []),
-    `isbn ${isbn13}`,
-    `isbn ${isbn13} book`,
-  ];
-
-  for (const query of queries) {
-    try {
-      const url = `https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(googleApiKey)}&cx=${encodeURIComponent(googleCx)}&q=${encodeURIComponent(query)}&num=5`;
-      const response = await fetch(url);
-      if (!response.ok) continue;
-
-      const data = await response.json();
-      const item = data.items?.find((it: any) => {
-        const title = (it.title || '').toLowerCase();
-        const snippet = (it.snippet || '').toLowerCase();
-        return title.includes(isbn13.replace(/\s+/g, '')) || snippet.includes(isbn13.replace(/\s+/g, '')) || snippet.includes('isbn');
-      }) || data.items?.[0];
-
-      if (!item) continue;
-
-      const title = String(item.title || '').replace(/\s*-\s*Google Search.*$/i, '').trim() || `Buku ${isbn13}`;
-      return {
-        title,
-        subtitle: undefined,
-        authors: ['Unknown Author'],
-        publisher: undefined,
-        publicationYear: undefined,
-        isbn10,
-        isbn13,
-        description: item.snippet || undefined,
-        language: undefined,
-        pageCount: undefined,
-        coverUrl: undefined,
-        categories: ['General Collection'],
-        source: 'google_books',
-      };
-    } catch {
-      // continue to next query if Google Search fallback fails
-    }
-  }
-
-  return null;
-}
-
 /**
  * Fetch book metadata by ISBN.
  * Pipeline:
  * 1. Supabase edge function (server-side, cached, authenticated)
  * 2. Supabase Edge Function lookup across Open Library, Google Books, and Jakarta Library
- * 3. Direct Open Library and Google Books fallback when the Edge Function is unavailable
+ * 3. Direct Open Library and unauthenticated Google Books fallback when the Edge Function is unavailable
  * 4. Smart metadata merging for complete fields (title, author, publisher, cover, description)
  * 5. Verification that returned records match the scanned ISBN.
  */
@@ -357,9 +305,7 @@ export async function fetchBookMetadataByIsbn(isbn: string): Promise<MetadataFet
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 7000);
 
-    const apiKey = (import.meta as any).env?.VITE_GOOGLE_BOOKS_API_KEY;
-    const apiKeyParam = apiKey ? `&key=${apiKey}` : '';
-    const googleUrl = `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn13}${apiKeyParam}`;
+    const googleUrl = `https://www.googleapis.com/books/v1/volumes?q=isbn:${encodeURIComponent(isbn13)}`;
 
     const res = await fetch(googleUrl, { signal: controller.signal });
     clearTimeout(timeoutId);
@@ -439,11 +385,6 @@ export async function fetchBookMetadataByIsbn(isbn: string): Promise<MetadataFet
       hasRealGbCover,
     );
     return finalizeSuccess(mergedMetadata, mergedMetadata.source, mergedMetadata.alternateCoverUrl);
-  }
-
-  const genericGoogleResult = await fetchGoogleSearchFallback(isbn13, isbn10);
-  if (genericGoogleResult) {
-    return finalizeSuccess(genericGoogleResult, 'google_books');
   }
 
   // Step D: Error Classification (BUG-08 & BUG-05)

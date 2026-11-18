@@ -77,6 +77,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
   userRole,
   onNavigateToScanner,
 }) => {
+  const currency = LibraryService.getSettings().library_info.currency || 'IDR';
   const [books, setBooks] = useState<Book[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -141,7 +142,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
   });
 
   const handleDeleteBook = async (bookId: string) => {
-    if (!window.confirm('Are you sure you want to remove this book and all its physical copies from the library?')) {
+    if (!window.confirm('Buku dengan copy fisik akan diarsipkan dan riwayat akuisisi tetap tersimpan. Buku tanpa copy akan dihapus permanen. Lanjutkan?')) {
       return;
     }
     await LibraryService.deleteBook(bookId);
@@ -724,7 +725,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
                     </div>
                     <div>
                       <label className="block text-[11px] font-medium text-[#5A4D44] mb-1">
-                        Acquisition Price ($)
+                        Acquisition Price ({currency})
                       </label>
                       <input
                         type="number"

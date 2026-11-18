@@ -6,23 +6,25 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
 
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: 21
@@ -31,7 +33,16 @@ jobs:
         run: npm ci
 
       - name: Build web assets
-        run: npm run build
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          # Stage A: bake the release identity into the web bundle so the in-app
+          # updater knows its own version at runtime (READOWL-UPDATER-PLAN.md §4.2).
+          # version-utils.mjs validates the tag format and rejects pre-release suffixes.
+          export VITE_APP_VERSION="${RELEASE_TAG#v}"
+          export VITE_APP_VERSION_CODE="$(node scripts/version-utils.mjs "$RELEASE_TAG")"
+          echo "Web bundle version: ${VITE_APP_VERSION} (versionCode ${VITE_APP_VERSION_CODE})"
+          npm run build
 
       - name: Prepare Firebase and signing files
         env:
@@ -47,12 +58,12 @@ jobs:
         run: npx cap sync android
 
       - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
 
       - name: Set up Google Cloud CLI
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f # v2
         with:
           project_id: ${{ secrets.FIREBASE_PROJECT_ID }}
 
@@ -70,19 +81,97 @@ jobs:
           test -n "$APK_STORAGE_BUCKET" || (echo "Missing APK_STORAGE_BUCKET secret" && exit 1)
           export APP_VERSION="${GITHUB_REF_NAME#v}"
           [[ "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]] || (echo "Release tag must use vMAJOR.MINOR.PATCH format" && exit 1)
-          export APP_VERSION_CODE="$GITHUB_RUN_NUMBER"
+          # Stage A: deterministic, monotonic versionCode (MAJOR*1e6 + MINOR*1e3 + PATCH)
+          # replaces GITHUB_RUN_NUMBER, which was not monotonic across re-runs of old tags
+          # (finding F-2). Computed with the same module used for the update manifest so
+          # the APK and latest.json can never disagree.
+          export APP_VERSION_CODE="$(node scripts/version-utils.mjs "$GITHUB_REF_NAME")"
+          echo "versionName=${APP_VERSION} versionCode=${APP_VERSION_CODE}"
           cd android
           ./gradlew app:assembleRelease
           APK_NAME="MeelieFont-${GITHUB_REF_NAME}.apk"
+          APK_PATH="app/build/outputs/apk/release/app-release.apk"
           gcloud storage cp --cache-control="public,max-age=31536000,immutable" \
-            app/build/outputs/apk/release/app-release.apk \
+            "$APK_PATH" \
             "gs://${APK_STORAGE_BUCKET}/${APK_NAME}"
 
+          # Stage A: verify the uploaded object BEFORE anything advertises it
+          # (README/plan rule: manifest is only published after the APK upload checks out).
+          PUBLIC_URL="https://storage.googleapis.com/${APK_STORAGE_BUCKET}/${APK_NAME}"
+          LOCAL_SIZE="$(stat -c%s "$APK_PATH")"
+          CONTENT_LENGTH="$(curl -fsSI --max-time 30 "$PUBLIC_URL" | tr -d '\r' | awk 'tolower($1)=="content-length:" {print $2}' | tail -n1)"
+          test -n "$CONTENT_LENGTH" || (echo "Upload verification failed: no content-length from $PUBLIC_URL" && exit 1)
+          test "$CONTENT_LENGTH" = "$LOCAL_SIZE" || (echo "Upload verification failed: remote=$CONTENT_LENGTH local=$LOCAL_SIZE" && exit 1)
+          echo "Verified uploaded APK: $PUBLIC_URL ($LOCAL_SIZE bytes)"
+
       - name: Publish APK release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           name: MeelieFont ${{ github.ref_name }}
           generate_release_notes: true
+
+      - name: Publish update manifest (latest.json)
+        env:
+          APK_STORAGE_BUCKET: ${{ secrets.APK_STORAGE_BUCKET }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          # Stage A: publish the updater manifest. Golden rule — this runs LAST in the
+          # publishing sequence (APK uploaded + verified, GitHub Release created), so
+          # latest.json can never point at an APK that is not available yet
+          # (READOWL-UPDATER-PLAN.md §9.1). Requires APK_STORAGE_BUCKET like the steps above.
+          test -n "$APK_STORAGE_BUCKET" || (echo "Missing APK_STORAGE_BUCKET secret" && exit 1)
+
+          APK_PATH="android/app/build/outputs/apk/release/app-release.apk"
+          APK_NAME="MeelieFont-${RELEASE_TAG}.apk"
+          PUBLIC_URL="https://storage.googleapis.com/${APK_STORAGE_BUCKET}/${APK_NAME}"
+          LATEST_URL="https://storage.googleapis.com/${APK_STORAGE_BUCKET}/latest.json"
+          APK_SHA256="$(sha256sum "$APK_PATH" | awk '{print $1}')"
+          APK_SIZE="$(stat -c%s "$APK_PATH")"
+
+          # Monotonicity gate against the currently published manifest.
+          # Absent manifest -> bootstrap the first release; unusable manifest -> fail closed.
+          PUBLISHED_ARGS=()
+          PREVIOUS_MANIFEST="$(mktemp)"
+          if curl -fsS --max-time 15 "$LATEST_URL" -o "$PREVIOUS_MANIFEST"; then
+            PUBLISHED_ARGS=(--published "$PREVIOUS_MANIFEST")
+            echo "Comparing versionCode against published manifest: $LATEST_URL"
+          else
+            rm -f "$PREVIOUS_MANIFEST"
+            echo "No published latest.json yet (first release) — bootstrapping."
+          fi
+
+          # Best-effort changelog: commit subjects since the previous release tag.
+          CHANGELOG_FILE="$(mktemp)"
+          PREV_TAG="$(git tag --list 'v*' --sort=-v:refname | grep -vx "$RELEASE_TAG" | head -n1 || true)"
+          if [ -n "$PREV_TAG" ]; then
+            git log --no-merges --pretty='- %s' "${PREV_TAG}..HEAD" > "$CHANGELOG_FILE" || true
+            echo "Changelog range: ${PREV_TAG}..HEAD"
+          else
+            git log --no-merges --pretty='- %s' -n 50 > "$CHANGELOG_FILE" || true
+            echo "First release: changelog seeded from the last 50 commits."
+          fi
+
+          node scripts/generate-latest-manifest.mjs \
+            --tag "$RELEASE_TAG" \
+            --sha256 "$APK_SHA256" \
+            --size "$APK_SIZE" \
+            --url "$PUBLIC_URL" \
+            --changelog-file "$CHANGELOG_FILE" \
+            --out latest.json \
+            ${PUBLISHED_ARGS[@]+"${PUBLISHED_ARGS[@]}"}
+
+          echo "Manifest to publish:"
+          cat latest.json
+
+          # Manifest must NOT be cached stale (clients re-check within ~60s).
+          gcloud storage cp --cache-control="public,max-age=60,must-revalidate" \
+            latest.json \
+            "gs://${APK_STORAGE_BUCKET}/latest.json"
+          echo "Published $LATEST_URL"
+
+      - name: Remove signing material
+        if: always()
+        run: rm -f android/app/meeliefont-release.jks android/app/google-services.json
 
   notify-devices:
     needs: build-and-release
@@ -90,7 +179,7 @@ jobs:
     steps:
       - name: Authenticate to Firebase
         id: firebase-auth
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           token_format: access_token

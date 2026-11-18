@@ -148,30 +148,65 @@ function normalizeIsbn13(value: string): string {
   return `${core}${(10 - (sum % 10)) % 10}`;
 }
 
+function hasValidIsbn10Checksum(value: string): boolean {
+  if (!/^\d{9}[\dX]$/.test(value)) return false;
+  let sum = 0;
+  for (let index = 0; index < 10; index++) {
+    const digit = value[index] === "X" ? 10 : Number(value[index]);
+    sum += digit * (10 - index);
+  }
+  return sum % 11 === 0;
+}
+
+function hasValidIsbn13Checksum(value: string): boolean {
+  if (!/^97[89]\d{10}$/.test(value)) return false;
+  let sum = 0;
+  for (let index = 0; index < 12; index++) {
+    sum += Number(value[index]) * (index % 2 === 0 ? 1 : 3);
+  }
+  return (10 - (sum % 10)) % 10 === Number(value[12]);
+}
+
+function isValidIsbn(value: string): boolean {
+  return value.length === 10
+    ? hasValidIsbn10Checksum(value)
+    : value.length === 13
+      ? hasValidIsbn13Checksum(value)
+      : false;
+}
+
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   try {
-    const { isbn } = await req.json();
+    const body = await req.json().catch(() => null);
+    const isbnInput = body?.isbn;
 
-    if (!isbn) {
-      return new Response(JSON.stringify({ error: "ISBN parameter is required" }), {
+    if (typeof isbnInput !== "string" || !isbnInput.trim()) {
+      return new Response(JSON.stringify({ error: "A valid ISBN string is required" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Clean ISBN: remove dashes and spaces
-    const cleanIsbn = isbn.replace(/[-\s]/g, "").trim().toUpperCase();
+    // Clean and validate before building any outbound URL.
+    const cleanIsbn = isbnInput.replace(/[-\s]/g, "").trim().toUpperCase();
+    if (!isValidIsbn(cleanIsbn)) {
+      return new Response(JSON.stringify({ error: "Invalid ISBN. Provide a valid ISBN-10 or ISBN-13." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const encodedIsbn = encodeURIComponent(cleanIsbn);
 
     let olMetadata: MetadataResponse | null = null;
     let hasRealOlCover = false;
 
     // 1. Try Open Library Books API
     try {
-      const olUrl = `https://openlibrary.org/api/books?bibkeys=ISBN:${cleanIsbn}&format=json&jscmd=data`;
+      const olUrl = `https://openlibrary.org/api/books?bibkeys=ISBN:${encodedIsbn}&format=json&jscmd=data`;
       const olRes = await fetch(olUrl);
       if (olRes.ok) {
         const olData = await olRes.json();
@@ -193,7 +228,7 @@ serve(async (req: Request) => {
             publisher: item.publishers?.[0]?.name,
             publicationYear: pubYear,
             isbn10: item.identifiers?.isbn_10?.[0] || (cleanIsbn.length === 10 ? cleanIsbn : undefined),
-            isbn13: item.identifiers?.isbn_13?.[0] || (cleanIsbn.length === 13 ? cleanIsbn : cleanIsbn),
+            isbn13: item.identifiers?.isbn_13?.[0] || cleanIsbn,
             description:
               typeof item.notes === "string"
                 ? item.notes
@@ -201,7 +236,7 @@ serve(async (req: Request) => {
                   ? item.description?.value
                   : (item.description as string | undefined),
             pageCount: item.number_of_pages,
-            coverUrl: verifiedCover || `https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg`,
+            coverUrl: verifiedCover || `https://covers.openlibrary.org/b/isbn/${encodedIsbn}-L.jpg`,
             categories: item.subjects
               ?.slice(0, 5)
               .map((s: { name: string } | string) => (typeof s === "string" ? s : s.name))
@@ -239,7 +274,7 @@ serve(async (req: Request) => {
     try {
       const gbApiKey = Deno.env.get("GOOGLE_BOOKS_API_KEY");
       const apiKeyParam = gbApiKey ? `&key=${gbApiKey}` : "";
-      const gbUrl = `https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}${apiKeyParam}`;
+      const gbUrl = `https://www.googleapis.com/books/v1/volumes?q=isbn:${encodedIsbn}${apiKeyParam}`;
       const gbRes = await fetch(gbUrl);
 
       if (gbRes.ok) {
@@ -282,11 +317,11 @@ serve(async (req: Request) => {
               publisher: volume.publisher,
               publicationYear: pubYear,
               isbn10: isbn10Obj?.identifier || (cleanIsbn.length === 10 ? cleanIsbn : undefined),
-              isbn13: isbn13Obj?.identifier || (cleanIsbn.length === 13 ? cleanIsbn : cleanIsbn),
+              isbn13: isbn13Obj?.identifier || cleanIsbn,
               description: volume.description,
               language: volume.language,
               pageCount: volume.pageCount,
-              coverUrl: coverUrl || `https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg`,
+              coverUrl: coverUrl || `https://covers.openlibrary.org/b/isbn/${encodedIsbn}-L.jpg`,
               categories: volume.categories || [],
               source: "google_books",
             };
@@ -321,7 +356,7 @@ serve(async (req: Request) => {
       const authors = sources.find((metadata) => metadata.authors.length > 0)?.authors || [];
       const categories = sources.find((metadata) => metadata.categories.length > 0)?.categories || [];
       const coverSource = sources.find((metadata) =>
-        metadata.coverUrl && metadata.coverUrl !== `https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg`
+        metadata.coverUrl && metadata.coverUrl !== `https://covers.openlibrary.org/b/isbn/${encodedIsbn}-L.jpg`
       );
       const metadata: MetadataResponse = {
         title: choose((item) => item.title as string) as string,
@@ -334,7 +369,7 @@ serve(async (req: Request) => {
         description: choose((item) => item.description as string | undefined) as string | undefined,
         language: choose((item) => item.language as string | undefined) as string | undefined,
         pageCount: choose((item) => item.pageCount) as number | undefined,
-        coverUrl: coverSource?.coverUrl || `https://covers.openlibrary.org/b/isbn/${cleanIsbn}-L.jpg`,
+        coverUrl: coverSource?.coverUrl || `https://covers.openlibrary.org/b/isbn/${encodedIsbn}-L.jpg`,
         alternateCoverUrl: undefined,
         categories,
         source: sources.length > 1 ? "merged" : sources[0].source,

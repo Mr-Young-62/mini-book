@@ -84,6 +84,7 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
   onBookCataloged,
   onNavigateToBookshelf,
 }) => {
+  const currency = LibraryService.getSettings().library_info.currency || 'IDR';
   const [isbnInput, setIsbnInput] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [lookupStatus, setLookupStatus] = useState<{
@@ -424,27 +425,29 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
               </button>
             </form>
 
-            {/* Quick Test Barcode Buttons */}
-            <div className="mt-4 pt-3 border-t border-[#F0ECE4]">
-              <span className="block text-[11px] font-semibold text-[#7E6F64] mb-2">
-                Barcode Contoh untuk Testing Langsung (1-Click Lookup):
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                {sampleIsbns.map((s) => (
-                  <button
-                    key={s.isbn}
-                    type="button"
-                    onClick={() => {
-                      setIsbnInput(s.isbn);
-                      handleIsbnLookup(s.isbn);
-                    }}
-                    className="px-2.5 py-1 text-[11px] bg-[#FAF8F5] hover:bg-[#fce4e4] border border-[#E5E0D8] hover:border-[#c62828]/40 text-[#4A3E35] rounded-md transition-colors font-mono"
-                  >
-                    {s.title} ({s.isbn.slice(-4)})
-                  </button>
-                ))}
+            {/* Quick Test Barcode Buttons (development only) */}
+            {import.meta.env.DEV && (
+              <div className="mt-4 pt-3 border-t border-[#F0ECE4]">
+                <span className="block text-[11px] font-semibold text-[#7E6F64] mb-2">
+                  Barcode Contoh untuk Testing Langsung (1-Click Lookup):
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {sampleIsbns.map((s) => (
+                    <button
+                      key={s.isbn}
+                      type="button"
+                      onClick={() => {
+                        setIsbnInput(s.isbn);
+                        handleIsbnLookup(s.isbn);
+                      }}
+                      className="px-2.5 py-1 text-[11px] bg-[#FAF8F5] hover:bg-[#fce4e4] border border-[#E5E0D8] hover:border-[#c62828]/40 text-[#4A3E35] rounded-md transition-colors font-mono"
+                    >
+                      {s.title} ({s.isbn.slice(-4)})
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
 
@@ -684,7 +687,7 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                 <div className="grid grid-cols-2 gap-3 text-xs">
                   <div>
                     <label className="block text-[11px] font-medium text-[#5A4D44] mb-1">
-                      Harga Perolehan ($)
+                      Harga Perolehan ({currency})
                     </label>
                     <input
                       type="number"

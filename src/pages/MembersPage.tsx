@@ -325,7 +325,7 @@ export const MembersPage: React.FC<MembersPageProps> = ({ userRole }) => {
                     type="text"
                     value={newPhone}
                     onChange={(e) => setNewPhone(e.target.value)}
-                    placeholder="+1 (555) 000-0000"
+                    placeholder="+62 812 0000 0000"
                     className="w-full px-3 py-2 bg-[#FAF8F5] border border-[#E5E0D8] rounded-lg text-xs font-mono"
                   />
                 </div>
