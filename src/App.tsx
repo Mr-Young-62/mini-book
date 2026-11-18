@@ -5,7 +5,6 @@ import { AuthPage } from './pages/AuthPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { BookshelfPage } from './pages/BookshelfPage';
 import { ScannerPage } from './pages/ScannerPage';
-import { InventoryPage } from './pages/InventoryPage';
 import { MembersPage } from './pages/MembersPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -18,14 +17,13 @@ const isUserRole = (role: unknown): role is UserRole =>
   role === 'Administrator' || role === 'Librarian' || role === 'Member';
 
 const allowedTabs: Record<UserRole, string[]> = {
-  Administrator: ['dashboard', 'books', 'scanner', 'inventory', 'members', 'reports', 'settings'],
-  Librarian: ['dashboard', 'books', 'scanner', 'inventory', 'members', 'reports'],
+  Administrator: ['dashboard', 'books', 'scanner', 'members', 'reports', 'settings'],
+  Librarian: ['dashboard', 'books', 'scanner', 'members', 'reports'],
   Member: ['dashboard', 'books'],
 };
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
-  const [dashboardView, setDashboardView] = useState<'shelves' | 'all-books'>('shelves');
   const [userRole, setUserRole] = useState<UserRole>('Administrator');
   const [appRefreshKey, setAppRefreshKey] = useState<number>(0);
   const [session, setSession] = useState<Session | null>(null);
@@ -190,11 +188,8 @@ export default function App() {
       <MainLayout
         key={appRefreshKey}
         currentTab={activeTab}
-        dashboardView={dashboardView}
-        onChangeDashboardView={setDashboardView}
         onSelectTab={setCurrentTab}
         userRole={activeRole}
-        onChangeRole={setUserRole}
         onOpenQuickScan={() => setCurrentTab('scanner')}
         cloudMode={isSupabaseConfigured}
         onSignOut={isSupabaseConfigured ? handleSignOut : undefined}
@@ -202,10 +197,10 @@ export default function App() {
         {activeTab === 'dashboard' && (
           <DashboardPage
             userRole={activeRole}
-            dashboardView={dashboardView}
-            onDashboardViewChange={setDashboardView}
-            onNavigate={setCurrentTab}
-            onScanClick={() => setCurrentTab('scanner')}
+            onNavigateToBooks={() => setCurrentTab('books')}
+            onNavigateToMembers={() => setCurrentTab('members')}
+            onNavigateToReports={() => setCurrentTab('reports')}
+            onNavigateToSettings={() => setCurrentTab('settings')}
           />
         )}
 
@@ -220,12 +215,6 @@ export default function App() {
           <ScannerPage
             onBookCataloged={handleBookCataloged}
             onNavigateToBookshelf={() => setCurrentTab('books')}
-          />
-        )}
-
-        {activeTab === 'inventory' && (
-          <InventoryPage
-            userRole={activeRole}
           />
         )}
 

@@ -1,15 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { BookOpen, ArrowRight, QrCode, Plus, Sparkles, Search, Clock3, PackageCheck, BookMarked, Library } from 'lucide-react';
+import { BookOpen, ArrowRight, QrCode, Plus, Sparkles, Search, Clock3, BookMarked, Library } from 'lucide-react';
 import { LibraryService } from '../services/libraryService';
 import { ActivityLog, Book, UserRole } from '../types/library';
 import { formatIsbn } from '../services/isbnValidator';
 
 interface DashboardPageProps {
   userRole: UserRole;
-  dashboardView?: 'shelves' | 'all-books';
-  onDashboardViewChange?: (view: 'shelves' | 'all-books') => void;
   onNavigate: (tab: string) => void;
-  onScanClick: () => void;
 }
 
 interface ShelfBook {
@@ -134,10 +131,7 @@ const ShelfSection: React.FC<{ title: string; books: ShelfBook[]; actionLabel?: 
 
 export const DashboardPage: React.FC<DashboardPageProps> = ({
   userRole,
-  dashboardView = 'shelves',
-  onDashboardViewChange,
   onNavigate,
-  onScanClick,
 }) => {
   const [books, setBooks] = useState<Book[]>([]);
   const [logs, setLogs] = useState<ActivityLog[]>([]);
@@ -225,7 +219,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           <div className="flex flex-wrap items-center gap-2">
             {userRole !== 'Member' && (
               <button
-                onClick={onScanClick}
+                onClick={() => onNavigate('scanner')}
                 className="inline-flex items-center gap-2 rounded-xl bg-[#c62828] px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#a61f1f]"
               >
                 <QrCode className="w-4 h-4" />
@@ -261,7 +255,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           </div>
           <button
             type="button"
-            onClick={() => onDashboardViewChange?.('all-books')}
+            onClick={() => onNavigate('books')}
             className="inline-flex items-center gap-2 rounded-lg border border-[#E5E0D8] bg-[#F9F6F2] px-3 py-2 text-[11px] font-semibold text-[#4A3E35] hover:border-[#D8C7B7]"
           >
             Browse all books
@@ -279,7 +273,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   ? 'bg-[#c62828] text-white'
                   : 'bg-[#F5F1EB] text-[#5B4A40] hover:bg-[#EAE2D8]'
               }`}
-              onClick={() => onDashboardViewChange?.('all-books')}
+              onClick={() => onNavigate('books')}
             >
               {tag}
             </button>
@@ -365,10 +359,9 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {[
-          { label: 'Scan ISBN / Barcode', icon: QrCode, onClick: onScanClick },
+          { label: 'Scan ISBN / Barcode', icon: QrCode, onClick: () => onNavigate('scanner') },
           { label: 'Add Book Manually', icon: BookMarked, onClick: () => onNavigate('scanner') },
           { label: 'Open Catalog', icon: Library, onClick: () => onNavigate('books') },
-          { label: 'Manage Inventory', icon: PackageCheck, onClick: () => onNavigate('inventory') },
         ].map(({ label, icon: Icon, onClick }) => (
           <button
             key={label}

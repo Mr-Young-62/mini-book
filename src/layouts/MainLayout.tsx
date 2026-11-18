@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
 import {
   QrCode,
-  Layers,
   Users,
   BarChart3,
+  Library,
   Settings as SettingsIcon,
-  ShieldCheck,
   Menu,
   X,
 } from 'lucide-react';
@@ -14,11 +13,8 @@ import { UserRole } from '../types/library';
 
 interface MainLayoutProps {
   currentTab: string;
-  dashboardView?: 'shelves' | 'all-books';
-  onChangeDashboardView?: (view: 'shelves' | 'all-books') => void;
   onSelectTab: (tab: string) => void;
   userRole: UserRole;
-  onChangeRole: (role: UserRole) => void;
   onOpenQuickScan: () => void;
   cloudMode: boolean;
   onSignOut?: () => void;
@@ -27,11 +23,8 @@ interface MainLayoutProps {
 
 export const MainLayout: React.FC<MainLayoutProps> = ({
   currentTab,
-  dashboardView = 'shelves',
-  onChangeDashboardView,
   onSelectTab,
   userRole,
-  onChangeRole,
   onOpenQuickScan,
   cloudMode,
   onSignOut,
@@ -42,8 +35,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: BarChart3, roles: ['Administrator', 'Librarian', 'Member'] },
     { id: 'scanner', label: 'ISBN Scanner', icon: QrCode, roles: ['Administrator', 'Librarian'] },
-    { id: 'inventory', label: 'Physical Inventory', icon: Layers, roles: ['Administrator', 'Librarian'] },
     { id: 'members', label: 'Members', icon: Users, roles: ['Administrator', 'Librarian'] },
+    { id: 'books', label: 'Book Shelf', icon: Library, roles: ['Administrator', 'Librarian', 'Member'] },
     { id: 'settings', label: 'Settings', icon: SettingsIcon, roles: ['Administrator'] },
   ];
 
@@ -87,47 +80,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
 
       <div className="main-panel">
         <header className="main-header">
-          {currentTab === 'dashboard' && (
-            <div className="tab-container">
-              <button
-                type="button"
-                className={`tab-button ${dashboardView === 'shelves' ? 'active' : ''}`}
-                onClick={() => onChangeDashboardView?.('shelves')}
-              >
-                Shelves
-              </button>
-              <button
-                type="button"
-                className={`tab-button ${dashboardView === 'all-books' ? 'active' : ''}`}
-                onClick={() => onChangeDashboardView?.('all-books')}
-              >
-                All Books
-              </button>
-            </div>
-          )}
-
           <div className="header-actions">
-            {cloudMode ? (
-              <span className="role-switcher" aria-label={`Signed in as ${userRole}`}>
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span>{userRole}</span>
-              </span>
-            ) : (
-              <div className="role-switcher">
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <select
-                  aria-label="Preview interface role (not an access-control mechanism)"
-                  title="Role preview only; permissions are not enforced in local mode."
-                  value={userRole}
-                  onChange={(e) => onChangeRole(e.target.value as UserRole)}
-                >
-                  <option value="Administrator">Admin preview</option>
-                  <option value="Librarian">Librarian preview</option>
-                  <option value="Member">Member preview</option>
-                </select>
-              </div>
-            )}
-
             {userRole !== 'Member' && (
               <button type="button" className="scan-button" onClick={onOpenQuickScan}>
                 <QrCode className="w-4 h-4" />
