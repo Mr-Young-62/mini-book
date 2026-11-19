@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Settings as SettingsIcon,
   Database,
@@ -10,8 +10,20 @@ import {
   Code,
   Building,
   Layers,
+  RefreshCw,
+  BellRing,
 } from 'lucide-react';
 import { LibraryService } from '../services/libraryService';
+import type { UpdaterApi } from '../hooks/useAppUpdater';
+import {
+  getPushSubscription,
+  isIosDevice,
+  isIosStandalone,
+  isWebPushSupported,
+  savePushSubscription,
+  subscribeToPush,
+  unsubscribeFromPush,
+} from '../services/pushService';
 import { LibrarySettings, UserRole } from '../types/library';
 import {
   isSupabaseConfigured,
@@ -25,11 +37,13 @@ import {
 interface SettingsPageProps {
   userRole: UserRole;
   onRefreshAppState: () => void;
+  updater: UpdaterApi;
 }
 
 export const SettingsPage: React.FC<SettingsPageProps> = ({
   userRole,
   onRefreshAppState,
+  updater,
 }) => {
   const [settings, setSettings] = useState<LibrarySettings>(LibraryService.getSettings());
   const [supabaseUrl, setSupabaseUrl] = useState(effectiveSupabaseUrl || '');
@@ -37,6 +51,53 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveSuccessMessage, setSaveSuccessMessage] = useState('Settings saved successfully!');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [pushSupported] = useState(() => isWebPushSupported());
+  const [pushSubscribed, setPushSubscribed] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushError, setPushError] = useState<string | null>(null);
+  const iosBrowserHint = pushSupported && isIosDevice() && !isIosStandalone();
+
+  useEffect(() => {
+    if (!pushSupported) return;
+    let cancelled = false;
+    void getPushSubscription()
+      .then((subscription) => {
+        if (!cancelled) setPushSubscribed(Boolean(subscription));
+      })
+      .catch(() => {
+        /* no registration yet */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pushSupported]);
+
+  const handleEnablePush = async () => {
+    setPushBusy(true);
+    setPushError(null);
+    try {
+      const payload = await subscribeToPush();
+      await savePushSubscription(payload, isIosDevice() ? 'ios-pwa' : 'web');
+      setPushSubscribed(true);
+    } catch (error) {
+      setPushError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPushBusy(false);
+    }
+  };
+
+  const handleDisablePush = async () => {
+    setPushBusy(true);
+    setPushError(null);
+    try {
+      await unsubscribeFromPush();
+      setPushSubscribed(false);
+    } catch (error) {
+      setPushError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPushBusy(false);
+    }
+  };
 
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -289,6 +350,132 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             </div>
           </div>
         </div>
+
+        {/* ================================================================= */}
+        {/* 3. APPLICATION UPDATES */}
+        {/* ================================================================= */}
+        <div className="bg-white border border-[#E8E2D9] rounded-xl p-5 shadow-2xs space-y-3">
+          <div className="flex items-center gap-2 pb-3 border-b border-[#F0ECE4]">
+            <RefreshCw className="w-4 h-4 text-[#c62828]" />
+            <h3 className="text-sm font-bold text-[#2C221E]">Application Updates</h3>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-mono">
+            <div>
+              <span className="text-[10px] uppercase text-[#7E6F64]">Versi terpasang</span>
+              <div className="text-[#2C221E]">{updater.currentVersion} ({updater.currentVersionCode || 'local'})</div>
+            </div>
+            <div>
+              <span className="text-[10px] uppercase text-[#7E6F64]">Versi terbaru</span>
+              <div className="text-[#2C221E]">
+                {updater.platform === 'desktop'
+                  ? (updater.desktop.version || '-')
+                  : (updater.manifest ? `${updater.manifest.version} (${updater.manifest.versionCode})` : '-')}
+              </div>
+            </div>
+          </div>
+
+          {updater.platform === 'desktop' && updater.desktop.available && updater.desktop.version && (
+            <div className="rounded-lg bg-[#FAF8F5] p-3 space-y-1 text-xs text-[#4A3E35]">
+              <div className="font-semibold text-[#2C221E]">Pembaruan v{updater.desktop.version} tersedia</div>
+              {updater.desktop.notes && updater.desktop.notes.split('\n').map((line, index) => (
+                line.trim() ? <div key={`${index}-${line}`}>• {line.trim()}</div> : null
+              ))}
+            </div>
+          )}
+          {updater.platform === 'desktop' && !updater.desktop.available && updater.desktop.manualStatus === 'up_to_date' && (
+            <p className="text-xs text-emerald-700">Anda sudah menggunakan versi terbaru.</p>
+          )}
+          {updater.platform === 'desktop' && updater.desktop.manualStatus === 'error' && updater.desktop.error && (
+            <p className="text-xs text-amber-700">Tidak dapat memeriksa pembaruan: {updater.desktop.error}</p>
+          )}
+
+          {updater.platform !== 'desktop' && updater.status === 'available' && updater.manifest && (
+            <div className="rounded-lg bg-[#FAF8F5] p-3 space-y-1 text-xs text-[#4A3E35]">
+              <div className="font-semibold text-[#2C221E]">Pembaruan v{updater.manifest.version} tersedia</div>
+              {updater.manifest.changelog.map((entry, index) => (
+                <div key={`${index}-${entry}`}>• {entry}</div>
+              ))}
+            </div>
+          )}
+          {updater.platform !== 'desktop' && updater.status === 'up_to_date' && (
+            <p className="text-xs text-emerald-700">Anda sudah menggunakan versi terbaru.</p>
+          )}
+          {updater.platform !== 'desktop' && updater.status === 'unavailable' && (
+            <p className="text-xs text-amber-700">Tidak dapat memeriksa pembaruan. Periksa koneksi internet.</p>
+          )}
+          {updater.platform !== 'desktop' && updater.status === 'disabled' && (
+            <p className="text-xs text-[#7E6F64]">
+              {updater.platform === 'android'
+                ? 'Pemeriksaan pembaruan hanya aktif pada build rilis Android.'
+                : 'Pemeriksaan pembaruan tersedia di build Android dan desktop.'}
+            </p>
+          )}
+
+          <button
+            type="button"
+            onClick={() => void updater.checkManually()}
+            disabled={updater.checking}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[#D4CDC3] bg-[#FAF8F5] px-3 py-1.5 text-xs font-semibold text-[#2C221E] hover:bg-[#F0ECE4] disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${updater.checking ? 'animate-spin' : ''}`} />
+            {updater.checking ? 'Memeriksa...' : 'Periksa pembaruan'}
+          </button>
+        </div>
+
+        {/* ================================================================= */}
+        {/* 4. UPDATE NOTIFICATIONS (Web Push / iOS PWA) */}
+        {/* ================================================================= */}
+        {pushSupported && (
+          <div className="bg-white border border-[#E8E2D9] rounded-xl p-5 shadow-2xs space-y-3">
+            <div className="flex items-center gap-2 pb-3 border-b border-[#F0ECE4]">
+              <BellRing className="w-4 h-4 text-[#c62828]" />
+              <h3 className="text-sm font-bold text-[#2C221E]">Notifikasi Update (Web / iOS)</h3>
+            </div>
+
+            <p className="text-xs text-[#7E6F64]">
+              Dapatkan notifikasi saat versi baru dirilis — langsung ke perangkat ini.
+            </p>
+            {iosBrowserHint && (
+              <p className="text-xs text-amber-700">
+                iOS hanya mengirim notifikasi ke app di Layar Utama. Di Safari: tombol <strong>Bagikan</strong> →{' '}
+                <strong>Tambahkan ke Layar Utama</strong>, lalu buka dari ikon tersebut dan aktifkan di sini.
+              </p>
+            )}
+            {pushError && <p className="text-xs text-red-600">{pushError}</p>}
+
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-mono">
+                Status:{' '}
+                {pushSubscribed ? (
+                  <span className="text-emerald-700 font-semibold">Aktif</span>
+                ) : (
+                  <span className="text-[#7E6F64]">Nonaktif</span>
+                )}
+              </span>
+              {pushSubscribed ? (
+                <button
+                  type="button"
+                  onClick={() => void handleDisablePush()}
+                  disabled={pushBusy}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[#D4CDC3] bg-[#FAF8F5] px-3 py-1.5 text-xs font-semibold text-[#2C221E] hover:bg-[#F0ECE4] disabled:opacity-50"
+                >
+                  {pushBusy ? 'Memproses...' : 'Nonaktifkan notifikasi'}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void handleEnablePush()}
+                  disabled={pushBusy}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#c62828] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#a61f1f] disabled:opacity-50"
+                >
+                  <BellRing className="h-3.5 w-3.5" />
+                  {pushBusy ? 'Mengaktifkan...' : 'Aktifkan notifikasi update'}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Form Actions */}
         <div className="flex items-center justify-between pt-2">

@@ -2,6 +2,9 @@
 // Server-side ISBN metadata lookup with public-catalog fallbacks.
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createRateLimiter, getRateLimitKey } from "./rateLimit.ts";
+
+const checkRateLimit = createRateLimiter({ windowMs: 60_000, max: 20 });
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -178,6 +181,18 @@ function isValidIsbn(value: string): boolean {
 serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
+  }
+
+  const rate = checkRateLimit(getRateLimitKey(req));
+  if (!rate.allowed) {
+    return new Response(JSON.stringify({ error: "Terlalu banyak permintaan. Coba lagi beberapa saat." }), {
+      status: 429,
+      headers: {
+        ...corsHeaders,
+        "Content-Type": "application/json",
+        "Retry-After": String(rate.retryAfterSeconds),
+      },
+    });
   }
 
   try {

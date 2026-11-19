@@ -428,6 +428,101 @@ export class LibraryService {
     return true;
   }
 
+  static async getArchivedBooks(): Promise<Book[]> {
+    if (isSupabaseConfigured) {
+      if (!supabase) throw new Error('Supabase is configured but the client could not be initialized.');
+      const { data, error } = await supabase
+        .from('books')
+        .select(`
+          *,
+          publisher:publishers(id, name),
+          authors:book_authors(author:authors(id, name)),
+          categories:book_categories(category:categories(id, name))
+        `)
+        .not('deleted_at', 'is', null)
+        .order('deleted_at', { ascending: false });
+      if (error) throw error;
+
+      const books = data || [];
+      const copiesByBook = new Map<string, any[]>();
+      if (books.length > 0) {
+        const { data: copies, error: copiesError } = await supabase
+          .from('book_copies_public')
+          .select('*')
+          .in('book_id', books.map((book: any) => book.id));
+        if (copiesError) throw copiesError;
+        for (const copy of copies || []) {
+          const list = copiesByBook.get(copy.book_id) || [];
+          list.push(copy);
+          copiesByBook.set(copy.book_id, list);
+        }
+      }
+
+      return books.map((b: any) => ({
+        ...b,
+        authors: b.authors?.map((a: any) => a.author).filter(Boolean) || [],
+        categories: b.categories?.map((c: any) => c.category).filter(Boolean) || [],
+        copies: copiesByBook.get(b.id) || [],
+      }));
+    }
+
+    const books = getLocal<Book[]>(STORAGE_KEY_BOOKS, initialBooks);
+    const copies = getLocal<BookCopy[]>(STORAGE_KEY_COPIES, initialCopies);
+    return books
+      .filter((b) => b.deleted_at)
+      .map((b) => ({
+        ...b,
+        copies: copies.filter((c) => c.book_id === b.id),
+      }));
+  }
+
+  static async restoreBook(bookId: string): Promise<boolean> {
+    if (isSupabaseConfigured) {
+      if (!supabase) throw new Error('Supabase is configured but the client could not be initialized.');
+      const { data, error } = await supabase
+        .from('books')
+        .update({ deleted_at: null })
+        .eq('id', bookId)
+        .not('deleted_at', 'is', null)
+        .select('id')
+        .maybeSingle();
+      if (error) {
+        if (error.code === '23505') return false;
+        throw error;
+      }
+      if (!data) return false;
+      await this.logActivity('BOOK_RESTORED', 'books', `Restored archived book record ${bookId}`);
+      return true;
+    }
+
+    const books = getLocal<Book[]>(STORAGE_KEY_BOOKS, initialBooks);
+    const book = books.find((b) => b.id === bookId && b.deleted_at);
+    if (!book) return false;
+    if (books.some((b) => b.id !== bookId && !b.deleted_at && b.isbn_13 === book.isbn_13)) return false;
+
+    const originalBooks = books.map((b) => ({ ...b }));
+    const restoredBooks = books.map((b) => {
+      if (b.id !== bookId) return b;
+      const activeBook = { ...b };
+      delete activeBook.deleted_at;
+      return activeBook;
+    });
+    try {
+      setLocal(STORAGE_KEY_BOOKS, restoredBooks);
+    } catch (error) {
+      try {
+        setLocal(STORAGE_KEY_BOOKS, originalBooks);
+      } catch (rollbackError) {
+        throw new Error(
+          `Book restore failed and local rollback failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`
+        );
+      }
+      throw error;
+    }
+    await this.logActivity('BOOK_RESTORED', 'books', `Restored archived book record ${bookId}`);
+    return true;
+  }
+
   // --------------------------------------------------------------------------
   // Physical Inventory & Copies
   // --------------------------------------------------------------------------

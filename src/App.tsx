@@ -10,6 +10,10 @@ import { ReportsPage } from './pages/ReportsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { UserRole } from './types/library';
 import { UpdateNotifications } from './components/UpdateNotifications';
+import { UpdateBanner } from './components/updater/UpdateBanner';
+import { UpdateDialog } from './components/updater/UpdateDialog';
+import { DesktopUpdateBanner } from './components/updater/DesktopUpdateBanner';
+import { useAppUpdater } from './hooks/useAppUpdater';
 import { isSupabaseConfigured, resetSupabaseConfig, supabase } from './lib/supabase';
 import { LibraryService } from './services/libraryService';
 
@@ -31,6 +35,67 @@ export default function App() {
   const [roleLoading, setRoleLoading] = useState(isSupabaseConfigured);
   const [cloudRole, setCloudRole] = useState<UserRole | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
+  const updater = useAppUpdater();
+  const updateManifest = updater.status === 'available' && !updater.dismissed ? updater.manifest : null;
+  const handleDismissUpdate = () => {
+    updater.dismiss();
+    setUpdateDialogOpen(false);
+  };
+  const desktopUi = updater.platform === 'desktop' && updater.desktop.available ? (
+    <DesktopUpdateBanner
+      version={updater.desktop.version}
+      notes={updater.desktop.notes}
+      downloading={updater.desktop.downloading}
+      error={updater.desktop.error}
+      onUpdate={() => void updater.startDesktopUpdate()}
+      onDismiss={updater.dismissDesktopUpdate}
+    />
+  ) : null;
+  const updaterUi = updateManifest ? (
+    <>
+      {!updateDialogOpen && (
+        <UpdateBanner
+          manifest={updateManifest}
+          forced={updater.forced}
+          onOpen={() => setUpdateDialogOpen(true)}
+          onDismiss={handleDismissUpdate}
+        />
+      )}
+      {updateDialogOpen && (
+        <UpdateDialog
+          manifest={updateManifest}
+          currentVersion={updater.currentVersion}
+          currentVersionCode={updater.currentVersionCode}
+          forced={updater.forced}
+          download={updater.download}
+          installError={updater.installError}
+          onStartDownload={updater.startDownload}
+          onCancelDownload={updater.cancelDownload}
+          onInstall={updater.installApk}
+          onOpenSettings={updater.openInstallerSettings}
+          onClose={() => setUpdateDialogOpen(false)}
+          onDismiss={handleDismissUpdate}
+        />
+      )}
+    </>
+  ) : desktopUi;
+
+  // Web Push (Tahap G): register the service worker and reload when a push
+  // notification says a new version is live (bundle may be stale in memory).
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    void navigator.serviceWorker.register('/sw.js').catch(() => {
+      /* push unsupported or offline — banner flows still work */
+    });
+    const onMessage = (event: MessageEvent) => {
+      if (event.data && event.data.type === 'UPDATE_AVAILABLE') {
+        window.location.reload();
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage);
+  }, []);
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -149,7 +214,8 @@ export default function App() {
     if (authLoading || roleLoading) {
       return (
         <>
-          <UpdateNotifications />
+          <UpdateNotifications onUpdateSignal={updater.notifyFromPush} />
+          {updaterUi}
           <div className="min-h-screen flex items-center justify-center text-sm text-[#7E6F64]">Connecting to library...</div>
         </>
       );
@@ -157,7 +223,8 @@ export default function App() {
     if (!supabase) {
       return (
         <>
-          <UpdateNotifications />
+          <UpdateNotifications onUpdateSignal={updater.notifyFromPush} />
+          {updaterUi}
           <AuthPage supabase={null} message={authError} onUseLocalMode={handleUseLocalMode} />
         </>
       );
@@ -165,7 +232,8 @@ export default function App() {
     if (!session || !cloudRole) {
       return (
         <>
-          <UpdateNotifications />
+          <UpdateNotifications onUpdateSignal={updater.notifyFromPush} />
+          {updaterUi}
           <AuthPage
             supabase={supabase}
             message={authError}
@@ -184,7 +252,8 @@ export default function App() {
 
   return (
     <>
-      <UpdateNotifications />
+      <UpdateNotifications onUpdateSignal={updater.notifyFromPush} />
+      {updaterUi}
       <MainLayout
         key={appRefreshKey}
         currentTab={activeTab}
@@ -227,6 +296,7 @@ export default function App() {
           <SettingsPage
             userRole={activeRole}
             onRefreshAppState={handleRefreshApp}
+            updater={updater}
           />
         )}
       </MainLayout>

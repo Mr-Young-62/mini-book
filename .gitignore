@@ -10,3 +10,6 @@ android/app/google-services.json
 android/app/*.jks
 *.keystore
 supabase/.temp/
+src-tauri/target/
+src-tauri/gen/
+deno.lock

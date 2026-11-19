@@ -37,14 +37,14 @@ Per 18 November 2026, seluruh temuan kritis dan sebagian besar temuan tinggi sud
 | 7 | Data pribadi anggota diunduh untuk dihitung | **Selesai** | Reports memakai `count: 'exact', head: true`. |
 | 8 | Kolom sensitif terbuka untuk anon | **Selesai (kode)** | View `book_copies_public` + policy staff-only. Migrasi belum diterapkan. |
 | 9 | `has_role` tanpa `search_path` | **Selesai (kode)** | `ALTER FUNCTION ... SET search_path`. Migrasi belum diterapkan. |
-| 10 | `book-metadata` tanpa validasi/rate limit | **Selesai (kode)** | Validasi tipe, regex ISBN, checksum, dan `encodeURIComponent`. Rate limit belum. Fungsi belum di-deploy ulang. |
+| 10 | `book-metadata` tanpa validasi/rate limit | **Selesai (kode)** | Validasi tipe, regex ISBN, checksum, `encodeURIComponent`, + rate limit 20 req/menit per user/IP (429 + `Retry-After`). Fungsi belum di-deploy ulang. |
 | 11 | URL/kunci Supabase bisa diarahkan ke host sembarang | **Selesai** | Host dibatasi + konfirmasi domain di Settings. |
 | 12 | Hapus buku menghapus riwayat akuisisi | **Selesai (kode)** | Buku dengan copy diarsipkan (`deleted_at`), copy dan acquisition record dipertahankan. Migrasi belum diterapkan. |
 | 13 | Akses member bergantung klaim email JWT | **Belum** | Perlu migrasi `members.user_id` dan policy baru. |
-| 14 | CSP dan workaround `window.fetch` | **Belum** | Perlu menghapus workaround inline di `index.html` lebih dulu. |
+| 14 | CSP dan workaround `window.fetch` | **Selesai** | Workaround inline dihapus; CSP allowlist ditaruh di `index.html`. |
 | 15 | `android:allowBackup="true"` | **Selesai (kode)** | Sudah `false`. APK perlu di-build ulang. |
 | 16 | Dua modul ISBN berbeda perilaku | **Selesai** | `isbnTools.ts` dihapus; semua pemakai memakai `isbnValidator.ts`; unit test ditambahkan. |
-| 17 | Pipeline metadata diduplikasi | **Sebagian** | Fallback Google Custom Search klien dihapus dan ternary redundant dibersihkan. Pipeline klien vs Edge Function masih ada. |
+| 17 | Pipeline metadata diduplikasi | **Selesai** | Fallback klien dihapus; `metadataService` hanya memanggil Edge Function `book-metadata`. CSP `connect-src` disempit (tanpa `openlibrary.org`/`*.googleapis.com`). |
 | 18 | Fitur digital book belum selesai | **Belum** | 4 file dan 1 migrasi masih 0 byte. Perlu keputusan lanjut atau hapus. |
 | 19 | Dependensi/tooling berantakan | **Selesai** | 8 dependensi tak terpakai dihapus, `bun.lock` dihapus, script `clean` diperbaiki, Vitest dan 18 unit test ditambahkan. |
 | 20 | Branding/lokalisasi tidak konsisten | **Sebagian** | Config, seed, dan label mata uang diperbaiki. Label UI masih campur Inggris/Indonesia. |
@@ -52,7 +52,7 @@ Per 18 November 2026, seluruh temuan kritis dan sebagian besar temuan tinggi sud
 | 22 | Tombol uji barcode di produksi | **Selesai** | Hanya tampil saat `import.meta.env.DEV`. |
 | 23 | CI/CD belum di-hardening | **Selesai (kode)** | Action dipin ke commit SHA, izin `contents: write` hanya per job rilis, material signing dibersihkan dengan `if: always()`. Workflow belum dijalankan ulang. |
 | 24 | Hygiene repository | **Sebagian** | `.gitattributes` ditambahkan, `.env` dan `supabase/.temp/` di-untrack. Riwayat git belum dibersihkan. |
-| 25 | Sisa template | **Sebagian** | Test Android dipindah ke `org.readowl.library` dan assertion diperbaiki. `proguard-rules.pro` masih template. |
+| 25 | Sisa template | **Selesai** | Test Android dipindah ke `org.readowl.library` dan assertion diperbaiki. `proguard-rules.pro` dibersihkan dari komentar template. |
 | 26 | Komponen terlalu besar | **Belum** | `ScannerPage`, `BookshelfPage`, dan `libraryService` belum dipecah. |
 | 27 | RPC katalog rusak setelah soft delete | **Selesai (kode)** | `ON CONFLICT` diarahkan ke partial unique index `WHERE deleted_at IS NULL`. Migrasi baru belum diterapkan. |
 
@@ -305,15 +305,12 @@ Penting:
 ## 8. Pekerjaan yang belum dikerjakan
 
 - Migrasi `members.user_id` untuk mengganti pencocokan email JWT.
-- CSP ketat dan penghapusan workaround `window.fetch`.
-- Rate limit `book-metadata`.
-- Menjadikan Edge Function satu-satunya pipeline metadata.
 - Keputusan fitur digital book: lanjut atau hapus.
-- Membersihkan `proguard-rules.pro` dari komentar template.
 - Meninjau 11 advisory `npm audit` pada rantai `firebase`/`@grpc/grpc-js`; perbaikan otomatis memerlukan downgrade besar.
 - Menjalankan workflow Android sekali untuk memvalidasi pin SHA dan cleanup.
 - Pecah `ScannerPage`, `BookshelfPage`, dan `libraryService`.
-- Tambahkan tombol restore untuk buku yang diarsipkan, jika dibutuhkan.
+
+Selesai 19 November 2026 (lihat §18–§23): CSP + penghapusan workaround `window.fetch`, rate limit `book-metadata`, cleanup `proguard-rules.pro`, tombol restore buku arsip, pipeline metadata tunggal via Edge Function.
 
 ---
 
@@ -433,6 +430,90 @@ Beberapa identifier lama sengaja dipertahankan:
 - **Staging**: 14 penghapusan persis rencana §16.4; **2 script updater masih untracked** → wajib ikut commit yang sama (NEEDS REVIEW atomisitas).
 - Verifikasi: tsc 0 · 18/18 test · `git diff --check` 0 (staged & unstaged) · CI YAML/bash valid · secret scan 0.
 - **Tidak ada `git add`/`restore`/`reset`/`commit`/`push`, staging tidak diubah, tidak ada perubahan kode** (hanya `PROGRESS.md` ini).
+
+### 19 November 2026 — Lanjutan item kode aman
+
+- Workaround `window.fetch` dihapus; CSP allowlist ditambahkan di `index.html`.
+- Rate limit 20 req/menit per user/IP ditambahkan ke `book-metadata` + 3 unit test.
+- `proguard-rules.pro` dibersihkan dari komentar template.
+- Tombol "Arsip" + "Pulihkan" ditambahkan: `getArchivedBooks()` / `restoreBook()` di `libraryService` dan panel arsip di `BookshelfPage`.
+- Verifikasi: tsc 0 · 21/21 test · build PASS · diff-check 0.
+- **Tidak ada commit/push/deploy/migrasi/rotasi.**
+
+### 19 November 2026 — Tahap B: update checker
+
+- `updateService.ts` + 11 unit test: validasi manifest V1–V10, allowlist URL, throttle 6–24 jam, cache 24 jam, retry 1x, evaluate/force/dismiss.
+- `useAppUpdater.ts`: cek otomatis di Android setelah 3 detik, cek manual, dismiss, sinyal FCM.
+- `UpdateBanner.tsx` + `UpdateDialog.tsx`; `UpdateNotifications.tsx` jadi pemicu cek saja (anti banner kembar).
+- `App.tsx` mount checker/banner/dialog; `SettingsPage` section "Application Updates".
+- CI menyuntik `VITE_UPDATE_MANIFEST_URL` dari `APK_STORAGE_BUCKET`; `.env.example` + README diperbarui.
+- Verifikasi: tsc 0 · 32/32 test · build PASS · YAML/bash valid · diff-check 0.
+- **Tidak ada commit/push/deploy/APK/migrasi/rotasi.**
+
+### 19 November 2026 — Tahap C: APK downloader
+
+- Plugin native `AppUpdaterPlugin` (Java): unduh HTTPS via `HttpURLConnection`, progress, resume `Range`, batal, cleanup >7 hari, verifikasi ukuran + SHA-256, cache `cacheDir/updates`.
+- `MainActivity` mendaftarkan plugin. Bridge `updaterBridge.ts` + tipe `src/types/updater.ts`.
+- `useAppUpdater` mengelola state unduhan; `UpdateDialog` menampilkan progress/batal + fallback browser.
+- Verifikasi: tsc 0 · 32/32 test · build PASS · javac PASS (stub Capacitor) · diff-check 0.
+- **Tidak ada build APK, commit, deploy, instalasi otomatis, atau perubahan Android permission.**
+
+### 19 November 2026 — Tahap D: APK installer
+
+- `REQUEST_INSTALL_PACKAGES` ditambahkan ke `AndroidManifest`.
+- `AppUpdaterPlugin.install`: validasi file, cek `canRequestPackageInstalls()` (API 24+ fallback ke `getPackageInfo`), `ACTION_VIEW` + FileProvider `org.readowl.library.fileprovider`, flag `FLAG_GRANT_READ_URI_PERMISSION`.
+- `openSettings`: `ACTION_MANAGE_UNKNOWN_APP_SOURCES` (API 26+) / `ACTION_APPLICATION_SETTINGS` (API 24).
+- Hook `installApk`/`openInstallerSettings` + `installError`; `UpdateDialog` tombol "Instal APK" + pesan error + link buka pengaturan.
+- Verifikasi: tsc 0 · 32/32 test · build PASS · javac PASS (stub Capacitor) · diff-check 0.
+- **Tidak ada build APK, commit, deploy, atau perubahan keystore.**
+
+### 19 November 2026 — Tahap E: security & testing
+
+- `scripts/sign-manifest.mjs`: generate keypair Ed25519 + tanda tangan manifest (canonical JSON).
+- `updateService.ts`: publik key di-pin + `verifyManifestSignature` (Web Crypto Ed25519) → manifest tanpa signature valid ditolak.
+- `AppUpdaterPlugin.install`: S5 validasi package id + S6 banding signature APK vs app terpasang.
+- CI: langkah sign `latest.json` dengan secret `UPDATER_SIGNING_PRIVATE_KEY`.
+- Verifikasi: tsc 0 · 35/35 test · build PASS · javac PASS · YAML/bash valid · roundtrip sign→verify PASS · diff-check 0.
+- **Tidak ada commit, push, deploy, build APK, atau perubahan keystore.**
+
+### 19 November 2026 — Pipeline metadata tunggal
+
+- `metadataService.ts` dipangkas: hanya memanggil Edge Function `book-metadata`; fetch langsung Open Library/Google Books dihapus dari klien.
+- CSP `connect-src` disempit (hapus `openlibrary.org` + `*.googleapis.com`).
+- Dokumentasi README §struktur/§fitur dan `READOWL-ARCHITECTURE.md` disesuaikan.
+- Verifikasi: tsc 0 · 35/35 test · build PASS · diff-check 0.
+- **Tidak ada commit, deploy, atau perubahan Edge Function.**
+
+### 19 November 2026 — Konfigurasi Vercel (services)
+
+- `vercel.json` dibuat: mode services, satu service `app` (Vite, root `.`), rewrite catch-all `/(.*) → app`.
+- Audit: `src-tauri` dimasukkan sebagai kandidat service tapi **dikecualikan** (shell desktop Tauri, tanpa `build.rs`/`icons`, tanpa HTTP handler — bukan server); **0 binding** karena tidak ada panggilan antar-service (app hanya memanggil Supabase via env build-time); tidak ada perubahan kode routing (app di `/`, tanpa prefix).
+- Dikonfirmasi user: nama service `app` saja · publik hanya `app` di `/` · tanpa binding.
+- JSON valid, `git diff --check` 0. **Tidak ada commit/push/deploy.**
+
+### 19 November 2026 — Tahap F: desktop updater (Windows + macOS)
+
+- `src-tauri` diaktifkan: `build.rs`, `capabilities/default.json`, plugin `updater`+`process` (Cargo + main.rs), ikon dari logo (`tauri icon`), `createUpdaterArtifacts`, pubkey minisign di-pin.
+- Keypair minisign dihasilkan (`tauri signer generate --ci`); private key di `/tmp/opencode/tauri-desktop.key` (luar repo) → wajib disimpan sebagai secret `TAURI_SIGNING_PRIVATE_KEY`.
+- Script CI: `prepare-desktop-build.mjs` (versi tag → tauri.conf/Cargo.toml + endpoint updater dari bucket) dan `generate-desktop-manifest.mjs` (manifest Tauri v2, fail-closed).
+- Workflow `desktop-release.yml`: build signed di windows + macos (arm64) → stage artifact → job publish: upload GCS `desktop/` + verifikasi content-length → `desktop/latest.json` terbit terakhir.
+- Frontend: cek desktop via `@tauri-apps/plugin-updater` (startup 3 dtk + manual Settings) + `DesktopUpdateBanner` + relaunch via plugin-process.
+- Repo **private** → endpoint updater memakai GCS publik, bukan GitHub Releases.
+- Verifikasi: `cargo check` PASS · tsc 0 · 35/35 test · web build PASS · `tauri info` parse OK · YAML + `bash -n` OK · uji 2 script (positif + fail-closed) PASS · roundtrip signer PASS · diff-check 0.
+- **Tidak ada commit/push/tag/build rilis nyata.**
+
+### 19 November 2026 — Tahap G: iOS via PWA + Web Push
+
+- Keputusan user: jalur **PWA + Web Push** (tanpa akun Apple); App Store ditunda.
+- PWA: `public/manifest.webmanifest`, meta iOS di `index.html`, ikon 180/192/512 dari logo.
+- `public/sw.js`: handler push + notificationclick (focus/klik → reload bila app terbuka); **tanpa fetch handler** = tanpa cache, selalu load deploy terbaru.
+- `pushService.ts` + 3 test: subscribe/unsubscribe (VAPID decode), simpan/hapus subscription ke tabel `push_subscriptions` (RLS own-row).
+- Section Settings "Notifikasi Update (Web / iOS)" + hint Add-to-Home-Screen untuk iOS browser; `App.tsx` daftar SW + listener reload.
+- Migrasi `20261119000000_push_subscriptions.sql` (file saja — `db push` tetap dilarang).
+- Edge Function `send-update-push`: secret header, kirim via `npm:web-push`, hapus subscription mati (404/410); `deno check` PASS.
+- CI `notify-devices`: step baru kirim push web setelah FCM (butuh secret `SUPABASE_FUNCTIONS_URL` + `UPDATE_PUSH_SECRET`).
+- Verifikasi: tsc 0 · 38/38 test · build PASS · deno check PASS · diff-check 0.
+- **Tidak ada commit/push/deploy/migrasi berjalan.**
 
 ---
 
@@ -1189,3 +1270,332 @@ git commit -m "security: harden RLS, secrets, CSV, and soft delete"
 ### 17.4 Kesimpulan
 
 **Seluruh perubahan yang ter-stage + yang akan ter-commit dinyatakan aman**, dengan **satu syarat wajib**: pastikan `scripts/version-utils.mjs` dan `scripts/generate-latest-manifest.mjs` ikut di-commit bersama `android-release.yml` (commit atomik). Tidak ada secret, dependensi yatim, file tak terencana, maupun konflik staging. Audit ini murni read-only — staging, kode, dan git history tidak diubah.
+
+---
+
+## 18. Lanjutan Item Kode Aman — 19 November 2026
+
+> **Status: DONE (implementasi + verifikasi).** Branch `security/hardening-and-updater-stage-a` @ `534a3ac`.
+> Riwayat section 1–17 tidak diubah isinya, kecuali status temuan 10/14/25, daftar §8, dan entri log §10.
+
+### 18.1 Yang dikerjakan
+
+| # | Item | Perubahan |
+|---|---|---|
+| 1 | CSP + workaround `window.fetch` | Blok inline script di `index.html` dihapus. Meta CSP ditambahkan: `default-src 'self'`, `script-src 'self'`, `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`, `font-src` + `img-src` untuk font/cover, `connect-src` untuk `*.supabase.co`, `openlibrary.org`, `*.googleapis.com`, `storage.googleapis.com`, FCM, serta localhost untuk dev. `object-src 'none'`, `base-uri/form-action 'self'`. |
+| 2 | Rate limit `book-metadata` | Modul baru `supabase/functions/book-metadata/rateLimit.ts`: fixed window 60 detik, maks 20 request per kunci. Kunci = `sub` JWT bila ada, jika tidak `x-forwarded-for` / `x-real-ip`. 429 + header `Retry-After`; preflight `OPTIONS` tidak dihitung. Map dibersihkan saat melebihi 1000 entri. |
+| 3 | `proguard-rules.pro` | Komentar template diganti satu baris ringkas. Perilaku build tidak berubah. |
+| 4 | Tombol restore buku arsip | `libraryService.getArchivedBooks()` + `restoreBook()` (Supabase: update `deleted_at = NULL`, konflik ISBN aktif → `false`; lokal: cek ISBN aktif + rollback). `BookshelfPage` dapat panel "Arsip" untuk Staff (tidak untuk Member) dengan tombol "Pulihkan"; aksi menulis log `BOOK_RESTORED`. |
+
+### 18.2 File
+
+**Baru:** `supabase/functions/book-metadata/rateLimit.ts`, `supabase/functions/book-metadata/rateLimit.test.ts`.
+
+**Diubah:** `index.html`, `src/services/libraryService.ts`, `src/pages/BookshelfPage.tsx`, `supabase/functions/book-metadata/index.ts`, `android/app/proguard-rules.pro`, `PROGRESS.md`.
+
+### 18.3 Verifikasi
+
+| Pemeriksaan | Hasil |
+|---|---|
+| `tsc --noEmit` | 0 — PASS |
+| `vitest run` | **21/21** (18 lama + 3 rate limiter) — PASS |
+| `vite build` | PASS; `dist/index.html` memuat meta CSP, tanpa inline script |
+| `git diff --check` | 0 — PASS |
+| Scan `eval(` / `new Function(` di bundle | 0 kecocokan — PASS |
+| Dev server | Injeksi inline Vite/react-refresh muncul **sebelum** meta CSP — dev tidak terblokir |
+
+### 18.4 Catatan
+
+- CSP memakai meta tag (bukan header): portable untuk hosting statis, tetapi tidak bisa memakai `frame-ancestors`/`report-uri`. `style-src` sengaja mengizinkan `'unsafe-inline'` karena React memakai inline `style`.
+- Rate limiter berbasis memori isolate Edge Function: proteksi dasar per instance, bukan state global lintas region. Untuk limit global antar-instance diperlukan tabel/counter Supabase — tidak ditambahkan sekarang.
+- Restore hanya untuk Staff. RLS tidak berubah: policy "Staff can manage books" (FOR ALL) sudah mengizinkan SELECT/UPDATE baris terarsip; Member tetap terfilter oleh `deleted_at IS NULL`.
+- Deploy ulang `book-metadata` dan penerapan perubahan frontend tetap menunggu approval (lihat §7/§12).
+
+---
+
+## 19. Tahap B — Update Checker — 19 November 2026
+
+> **Status: DONE (implementasi + verifikasi) — Tahap C menunggu approval.**
+> Spesifikasi: [`READOWL-UPDATER-PLAN.md`](./READOWL-UPDATER-PLAN.md) §3–§4, §8, §10 Tahap B.
+> Section 1–18 dipertahankan; hanya status temuan, §8, dan log §10 yang disentuh di §18.
+
+### 19.1 Implementasi
+
+| # | Bagian | Detail |
+|---|---|---|
+| 1 | `src/services/updateService.ts` | Validasi manifest V1–V10 (`schemaVersion`, `app`, `versionCode`, `releaseDate`, allowlist URL APK, `sha256`, `fileSize`, `minimumSupportedVersionCode`, `forceUpdate`, `changelog`). Banding versi memakai integer `versionCode`. Timeout 10 dtk + 1 retry. Throttle 6/12/24 jam sesuai jumlah kegagalan, cache manifest 24 jam, guard satu flight. Dismiss per `versionCode`. `openDownloadUrl` memakai allowlist yang sama. |
+| 2 | `src/services/updateService.test.ts` | 11 test: manifest valid/invalid, allowlist, keputusan versi (up-to-date/available/forced/dismissed), build lokal → checker nonaktif. |
+| 3 | `src/hooks/useAppUpdater.ts` | Cek startup Android setelah 3 dtk (bukan di platform lain), cek manual, dismiss, `notifyFromPush` untuk FCM. |
+| 4 | UI | `UpdateBanner` + `UpdateDialog` baru (info versi, changelog, force tanpa "Nanti", fallback unduh via browser). `UpdateNotifications` sekarang hanya sinyal → satu banner in-app. |
+| 5 | Integrasi | `App.tsx` mount checker + banner + dialog di semua cabang render; `SettingsPage` section "Application Updates" dengan tombol "Periksa pembaruan". |
+| 6 | Build/CI | `VITE_UPDATE_MANIFEST_URL` disuntik dari secret `APK_STORAGE_BUCKET`. Tanpa env versi/URL → checker nonaktif (aman untuk dev). `.env.example` + README §5 diperbarui. |
+
+### 19.2 File
+
+**Baru:** `src/services/updateService.ts`, `src/services/updateService.test.ts`, `src/hooks/useAppUpdater.ts`, `src/components/updater/UpdateBanner.tsx`, `src/components/updater/UpdateDialog.tsx`.
+
+**Diubah:** `src/App.tsx`, `src/pages/SettingsPage.tsx`, `src/components/UpdateNotifications.tsx`, `.github/workflows/android-release.yml`, `.env.example`, `README.md`, `PROGRESS.md`.
+
+### 19.3 Verifikasi
+
+| Pemeriksaan | Hasil |
+|---|---|
+| `tsc --noEmit` | 0 — PASS |
+| `vitest run` | **32/32** (21 sebelumnya + 11 updateService) — PASS |
+| `vite build` | PASS; bundle rilis mengandung versi, versionCode, URL manifest, key cache |
+| Parse YAML + `bash -n` step Build web assets | OK / 0 — PASS |
+| `npm ci --dry-run` / `npm ci` | PASS — `package.json` + `package-lock.json` dikembalikan ke HEAD setelah ditemukan downgrade `firebase`/`@capacitor-firebase/messaging` yang tidak disengaja dan memicu `ERESOLVE` |
+| `git diff --check` | 0 — PASS |
+
+### 19.4 Batasan Tahap B
+
+- Belum ada downloader/instalator dalam aplikasi — tombol dialog masih membuka browser (Tahap C/D).
+- `latest.json` belum ditandatangani Ed25519 (Tahap E, wajib sebelum rilis pengguna).
+- FCM hanya memicu cek; notifikasi sistem OS tetap muncul (tidak bisa dihilangkan dari WebView).
+- Checker otomatis hanya di Android dan hanya setelah auth/role selesai; build lokal tanpa env → nonaktif.
+- Perubahan CI butuh satu kali rilis tag asli untuk memvalidasi injeksi `VITE_UPDATE_MANIFEST_URL` end-to-end (aksi user).
+
+---
+
+## 20. Tahap C — APK Downloader — 19 November 2026
+
+> **Status: DONE (implementasi + verifikasi) — Tahap D menunggu approval.**
+> Spesifikasi: [`READOWL-UPDATER-PLAN.md`](./READOWL-UPDATER-PLAN.md) §5, §10 Tahap C.
+
+### 20.1 Implementasi
+
+| # | Bagian | Detail |
+|---|---|---|
+| 1 | `AppUpdaterPlugin.java` | Plugin Capacitor `AppUpdater` dengan `@PluginMethod` `download`, `cancel`, `cleanup`. `HttpURLConnection` + timeout 15/30 dtk, tanpa redirect. Allowlist native (https + `storage.googleapis.com` + pola path APK) identik dengan klien. Unduh ke `cacheDir/updates/readowl-<versionCode>.apk.part`, resume via `Range`, digest SHA-256 saat streaming, cek ukuran vs `fileSize`, rename ke `.apk`. Progress event `downloadProgress` (maks ~4x/detik) lewat `runOnUiThread`. |
+| 2 | `MainActivity.java` | `registerPlugin(AppUpdaterPlugin.class)` sebelum `super.onCreate`. |
+| 3 | `updaterBridge.ts` + `types/updater.ts` | `registerPlugin` dengan `download`, `cancel`, `cleanup`, `addListener`. Guard `Capacitor.getPlatform() === 'android'`. |
+| 4 | `useAppUpdater.ts` | State unduhan (`idle`/`downloading`/`ready`/`error`), listener progress, start/cancel, cleanup otomatis saat mount. Di non-Android, tombol unduh jatuh ke browser. |
+| 5 | `UpdateDialog.tsx` | Bar progress + MB + persen, tombol Batal, pesan sukses/error, fallback "Unduh via browser". |
+
+### 20.2 File
+
+**Baru:** `android/app/src/main/java/org/readowl/library/updater/AppUpdaterPlugin.java`, `src/services/updaterBridge.ts`, `src/types/updater.ts`.
+
+**Diubah:** `android/app/src/main/java/org/readowl/library/MainActivity.java`, `src/hooks/useAppUpdater.ts`, `src/components/updater/UpdateDialog.tsx`, `src/App.tsx`, `PROGRESS.md`.
+
+### 20.3 Verifikasi
+
+| Pemeriksaan | Hasil |
+|---|---|
+| `tsc --noEmit` | 0 — PASS |
+| `vitest run` | 32/32 — PASS |
+| `vite build` | PASS |
+| `javac` plugin + MainActivity (stub API Capacitor di `%TEMP%`, android.jar SDK) | 0 error — PASS |
+| `git diff --check` | 0 — PASS |
+
+### 20.4 Batasan Tahap C
+
+- Gradle `:app:compileDebugJavaWithJavac` belum bisa dijalankan karena `capacitor-cordova-android-plugins` belum di-generate (`npx cap sync android` belum dijalankan). Pengecekan Java memakai stub API, bukan build APK penuh.
+- Belum ada instalasi APK / izin `REQUEST_INSTALL_PACKAGES` (Tahap D). Setelah unduh, UI hanya mengatakan APK siap.
+- Belum ada validasi paket/signature (Tahap E) dan tanda tangan manifest Ed25519 (Tahap E).
+- `file_paths.xml` tidak diubah; jalur cache sudah tercakup oleh `cache-path`.
+- Perlu build APK + uji di perangkat nyata untuk memvalidasi plugin, progress, resume, dan penyimpanan cache (aksi user).
+
+---
+
+## 21. Tahap D — APK Installer — 19 November 2026
+
+> **Status: DONE (implementasi + verifikasi) — Tahap E menunggu approval.**
+> Spesifikasi: [`READOWL-UPDATER-PLAN.md`](./READOWL-UPDATER-PLAN.md) §2, §7, §10 Tahap D.
+
+### 21.1 Implementasi
+
+| # | Bagian | Detail |
+|---|---|---|
+| 1 | `REQUEST_INSTALL_PACKAGES` | Ditambahkan ke `AndroidManifest.xml`. Tanpa izin ini, Android 8+ tidak akan mengizinkan instalasi APK dari aplikasi. |
+| 2 | `AppUpdaterPlugin.install` | Validasi path + file ada. Cek `canRequestPackageInstalls()` (API 26+); API 24 fallback `getPackageInfo("com.android.packageinstaller")`. Jika tidak diizinkan → resolve dengan `action: openSettings`. Buat `FileProvider` URI (`org.readowl.library.fileprovider`), `ACTION_VIEW` + `application/vnd.android.package-apk`, flag `FLAG_GRANT_READ_URI_PERMISSION` + `FLAG_ACTIVITY_NEW_TASK`. |
+| 3 | `AppUpdaterPlugin.openSettings` | `ACTION_MANAGE_UNKNOWN_APP_SOURCES` (API 26+) / `ACTION_APPLICATION_SETTINGS` (API 24). |
+| 4 | `useAppUpdater` | `installApk` + `openInstallerSettings` + state `installError`. |
+| 5 | `UpdateDialog` | Tombol "Instal APK" (hanya saat `ready`), pesan error, link "Izin tidak diberikan? Buka Pengaturan". |
+
+### 21.2 File
+
+**Diubah:** `android/app/src/main/AndroidManifest.xml`, `android/app/src/main/java/org/readowl/library/updater/AppUpdaterPlugin.java`, `src/services/updaterBridge.ts`, `src/hooks/useAppUpdater.ts`, `src/components/updater/UpdateDialog.tsx`, `src/App.tsx`, `PROGRESS.md`.
+
+### 21.3 Verifikasi
+
+| Pemeriksaan | Hasil |
+|---|---|
+| `tsc --noEmit` | 0 — PASS |
+| `vitest run` | 32/32 — PASS |
+| `vite build` | PASS |
+| `javac` plugin + MainActivity (stub API Capacitor di `%TEMP%`, android.jar SDK) | 0 error — PASS |
+| `git diff --check` | 0 — PASS |
+
+### 21.4 Batasan Tahap D
+
+- Instalasi **selalu** melalui Android Package Installer resmi + konfirmasi pengguna (tidak ada instalasi senyap).
+- `file_paths.xml` tidak diubah; APK di `cacheDir/updates/` sudah tercakup oleh `cache-path`.
+- Belum ada validasi signature APK (S6) dan tanda tangan manifest Ed25519 (S7) — Tahap E.
+- `minSdkVersion = 24` (Android 7) → "Unknown sources" global; API 26+ per-app permission.
+- Perlu build APK + uji di perangkat nyata (Android 7 vs 8+) untuk memvalidasi izin, FileProvider, dan alur permission UX (aksi user).
+
+---
+
+## 22. Tahap E — Security & Testing — 19 November 2026
+
+> **Status: DONE (implementasi + verifikasi) — updater A–E selesai dikerjakan.**
+> Spesifikasi: [`READOWL-UPDATER-PLAN.md`](./READOWL-UPDATER-PLAN.md) §6, §10 Tahap E.
+
+### 22.1 Implementasi
+
+| # | Bagian | Detail |
+|---|---|---|
+| 1 | `scripts/sign-manifest.mjs` | Dua mode: `--gen-key` (generate keypair Ed25519, tulis seed base64url + publik) dan `--in/--key/--out` (tanda tangan canonical JSON, tambah field `signature` base64url 64 byte). |
+| 2 | Verifikasi manifest (S7) | `updateService.ts`: publik key di-pin (`UPDATER_PUBLIC_KEY_B64`), `verifySignatureWithKey` via Web Crypto `Ed25519`. Gagal verifikasi → manifest ditolak (fail closed) → cek jatuh ke cache/tidak ada update. |
+| 3 | S5/S6 di plugin | `verifyArchive`: `getPackageArchiveInfo` → package id wajib `org.readowl.library`, signature byte APK wajib sama dengan app terpasang. Gagal → reject sebelum installer dibuka. |
+| 4 | CI | Step publish manifest menyimpan `UPDATER_SIGNING_PRIVATE_KEY` ke file sementara, menandatangani `latest.json`, lalu menghapus file. Secret baru: `UPDATER_SIGNING_PRIVATE_KEY`. |
+| 5 | Dokumentasi | README: cara generate keypair, pin publik key, daftar secret CI. npm script `release:sign-manifest`. |
+
+### 22.2 File
+
+**Baru:** `scripts/sign-manifest.mjs`.
+
+**Diubah:** `src/services/updateService.ts`, `src/services/updateService.test.ts`, `android/app/src/main/java/org/readowl/library/updater/AppUpdaterPlugin.java`, `.github/workflows/android-release.yml`, `README.md`, `package.json`, `PROGRESS.md`.
+
+### 22.3 Verifikasi
+
+| Pemeriksaan | Hasil |
+|---|---|
+| `tsc --noEmit` | 0 — PASS |
+| `vitest run` | **35/35** (32 + 3 signature) — PASS |
+| `vite build` | PASS |
+| `javac` plugin (stub API Capacitor + android.jar) | 0 error — PASS |
+| Parse YAML + `bash -n` step Publish manifest | OK / 0 — PASS |
+| Roundtrip `sign-manifest.mjs` → verifikasi node | PASS |
+| `git diff --check` | 0 — PASS |
+
+### 22.4 Catatan & aksi user
+
+- **Publik key di app** (`UPDATER_PUBLIC_KEY_B64` di `src/services/updateService.ts`) sudah diisi dengan keypair contoh. Untuk produksi: jalankan `node scripts/sign-manifest.mjs --gen-key --out-key private.b64 --out-pub public.b64`, simpan nilai private sebagai secret `UPDATER_SIGNING_PRIVATE_KEY`, dan ganti `UPDATER_PUBLIC_KEY_B64` dengan nilai public yang tercetak. **Private key tidak boleh masuk repo.**
+- Rilis pertama setelah perubahan ini **wajib** memakai manifest bertanda tangan; tanpa signature valid, app menolak manifest (checker tetap aman: tidak ada update palsu, hanya tidak ada update).
+- Belum ada test matrix perangkat nyata (Android 7 vs 8+, offline, download terputus, hash gagal) — butuh build APK + perangkat (aksi user).
+
+---
+
+## 23. Pipeline Metadata Tunggal — 19 November 2026
+
+> **Status: DONE (kode) — temuan 17 selesai.** Fungsi Edge Function `book-metadata` yang sudah diperketat (validasi + rate limit, §18) tetap harus di-deploy ulang (aksi user).
+
+### 23.1 Perubahan
+
+| # | Bagian | Detail |
+|---|---|---|
+| 1 | `src/services/metadataService.ts` | Pipeline klien (Open Library → Google Books → merge) dihapus. Alur kini: validasi ISBN → cache → `metadataClient.functions.invoke('book-metadata')` → mapping. Gagal jaringan → `network_error`; 429 → `rate_limited`; respons tak cocok → `not_found` + pesan arahkan deploy Edge Function. |
+| 2 | CSP `index.html` | `connect-src` kehilangan `https://openlibrary.org` dan `https://*.googleapis.com` — klien tak lagi memanggil API pihak ketiga langsung. |
+| 3 | Dokumentasi | README (struktur file + fitur scanner), `READOWL-ARCHITECTURE.md` (inventaris, tabel service, diagram alur, daftar sumber API). |
+
+### 23.2 Verifikasi
+
+| Pemeriksaan | Hasil |
+|---|---|
+| `tsc --noEmit` | 0 — PASS |
+| `vitest run` | 35/35 — PASS |
+| `vite build` | PASS |
+| `git grep` pemanggilan langsung `openlibrary`/`googleapis` di `src/` | 0 (hanya allowlist updater `storage.googleapis.com`) — PASS |
+| `git diff --check` | 0 — PASS |
+
+### 23.3 Catatan
+
+- Parser tipe `MetadataErrorType` tetap dipertahankan (`timeout`, `rate_limited`, dll) agar UI `ScannerPage` tak berubah; error dipetakan ke tipe tersebut.
+- Ketergantungan baru: tanpa Edge Function ter-deploy, pencarian metadata otomatis mati (pengguna tetap bisa isi manual). Deploy `book-metadata` jadi prasyarat setelah migrasi/rotasi (§7).
+- Cache in-memory per sesi dipertahankan; tidak ada perubahan perilaku simpan buku.
+
+---
+
+## 24. Tahap F — Desktop Updater (Windows + macOS) — 19 November 2026
+
+> **Status: DONE (kode + CI + docs) — belum commit, belum rilis tag nyata.** Keputusan user: (1) platform Windows + macOS dulu, (2) notif via **in-app check** (bukan webhook), (3) nama service Vercel `app` saja / publik `/` / tanpa binding (lihat log §10).
+
+### 24.1 Perubahan
+
+| # | Bagian | Detail |
+|---|---|---|
+| 1 | `src-tauri/` (aktif) | `build.rs`, `capabilities/default.json` (core/opener/updater/process), `Cargo.toml` + plugin `tauri-plugin-updater`/`process`, `main.rs` registrasi plugin, ikon dari logo (`tauri icon`), `bundle.createUpdaterArtifacts`, pubkey minisign di `plugins.updater.pubkey`. `Cargo.lock` di-commit; `target/`+`gen/` di-gitignore. |
+| 2 | Keypair minisign | `npx tauri signer generate --ci` — private key di `/tmp/opencode/tauri-desktop.key` (**luar repo**), publik di-pin di `tauri.conf.json`. Password kosong (uji roundtrip signer PASS). |
+| 3 | `scripts/prepare-desktop-build.mjs` | Injeksi versi tag → `tauri.conf.json` + `Cargo.toml`; endpoint updater `https://storage.googleapis.com/<bucket>/desktop/latest.json` divalidasi (https + host GCS + path `/latest.json`). Tanpa endpoint, checker desktop fail-closed. |
+| 4 | `scripts/generate-desktop-manifest.mjs` | Perakit manifest Tauri v2 (`version`/`notes`/`pub_date`/`platforms`), signature = isi `.sig`, fail-closed bila `windows-x86_64` atau `darwin-aarch64` hilang. |
+| 5 | `.github/workflows/desktop-release.yml` | `build` (windows-latest + macos-latest arm64): npm ci → prepare → `npx tauri build` bertanda tangan → stage `bundle/*`+`.sig`. `publish` (ubuntu): download artefak → gcloud upload `gs://<bucket>/desktop/` + verifikasi content-length → manifest terbit **terakhir** (`max-age=60`). Repo private → endpoint wajib GCS publik, bukan GitHub Releases. |
+| 6 | `useAppUpdater.ts` | Deteksi Tauri (`__TAURI_INTERNALS__`), cek `plugin-updater.check()` saat startup (3 dtk) + manual; `startDesktopUpdate` = `downloadAndInstall` + `relaunch`; dismiss persist per versi; `platform` di ekspor. |
+| 7 | `DesktopUpdateBanner.tsx` + `App.tsx` + `SettingsPage.tsx` | Banner desktop (Perbarui/Nanti/downloading/error); `App` render banner via fallback `updaterUi`; Settings: blok status desktop + "Versi terbaru" dari manifest desktop. |
+| 8 | `package.json` | deps: `@tauri-apps/api`, `plugin-updater`, `plugin-process`; devDep: `@tauri-apps/cli` (2.12.6). |
+| 9 | Docs | README §5 desktop updates + 2 secret baru; `READOWL-ARCHITECTURE.md` (stack, struktur, §4.6 alur desktop, §4.7, inventaris §5.1, F-10 RESOLVED); `.gitignore`. |
+
+### 24.2 Verifikasi
+
+| Pemeriksaan | Hasil |
+|---|---|
+| `cargo check` (src-tauri) | PASS (tauri 2.12.7, plugin-updater 2.14.1) |
+| `tsc --noEmit` | 0 — PASS |
+| `vitest run` | 35/35 — PASS |
+| `vite build` (+ env versi) | PASS |
+| `npx tauri info` (parse config) | PASS |
+| Uji `prepare-desktop-build.mjs` (positif + host salah + tag prerelease) | PASS / ditolak / ditolak |
+| Uji `generate-desktop-manifest.mjs` (positif + SIG hilang) | PASS / fail-closed |
+| Roundtrip `tauri signer sign` (password kosong) | PASS |
+| YAML + `bash -n` seluruh `run:` di `desktop-release.yml` | PASS |
+| `git diff --check` | 0 — PASS |
+
+### 24.3 Aksi user (di luar repo)
+
+1. **Simpan private key** `/tmp/opencode/tauri-desktop.key` ke tempat aman — `/tmp` bisa hilang. Hilang = desktop lama tak bisa verifikasi update baru (regenerasi = ganti pubkey + rilis ulang).
+2. Buat secret GitHub: `TAURI_SIGNING_PRIVATE_KEY` = isi file key; `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` = kosong.
+3. Tag rilis uji (`v1.2.3` dst.) untuk menjalankan dua workflow end-to-end.
+
+### 24.4 Batasan / belum dikerjakan
+
+- **iOS**: belum saat Tahap F → **diselesaikan Tahap G (§25)** — PWA + Web Push; App Store tetap ditunda.
+- **Notif push desktop**: tidak ada (FCM-style) — pilihan user in-app check; webhook/Telegram opsional nanti.
+- **macOS**: build unsigned — Gatekeeper warning; perlu akun Apple Developer untuk signing/notarisasi. **Intel Mac** belum di-build (baru `aarch64`).
+- **Windows**: SmartScreen warning tanpa Authenticode.
+- Tidak ada commit/push/tag; artefak rilis nyata belum pernah dijalankan.
+
+---
+
+## 25. Tahap G — iOS via PWA + Web Push — 19 November 2026
+
+> **Status: DONE (kode + CI + docs) — belum commit, belum deploy function, belum jalan migrasi.** Keputusan user: jalur **PWA + Web Push** (tanpa akun Apple); App Store ditunda.
+
+### 25.1 Perubahan
+
+| # | Bagian | Detail |
+|---|---|---|
+| 1 | PWA shell | `public/manifest.webmanifest` (standalone, ikon 192/512), `public/apple-touch-icon.png` 180px, meta `apple-mobile-web-app-*` + `theme-color` + link manifest di `index.html`. |
+| 2 | `public/sw.js` | Handler `push` (showNotification + payload title/body/url) dan `notificationclick` (focus window + postMessage `UPDATE_AVAILABLE` → app reload, atau `openWindow`). **Tanpa fetch handler** → tanpa cache, buka = deploy terbaru. |
+| 3 | `src/services/pushService.ts` + test | `isWebPushSupported`/`isIosDevice`/`isIosStandalone`, decode VAPID (`urlBase64ToUint8Array`), register SW, `subscribeToPush`/`unsubscribeFromPush`, simpan/hapus row via Supabase (wajib login). 3 test (decode base64url + support). |
+| 4 | UI | Section Settings **"Notifikasi Update (Web / iOS)"**: status, aktifkan/nonaktifkan, hint iOS browser (Bagikan → Tambahkan ke Layar Utama). `App.tsx`: daftar SW saat mount + listener reload dari SW. |
+| 5 | Migrasi | `20261119000000_push_subscriptions.sql`: tabel + RLS insert/select/update/delete own-row + index. **File saja** — `db push` tetap dilarang (§7). |
+| 6 | Edge Function | `supabase/functions/send-update-push/`: autentikasi `Bearer UPDATE_PUSH_SECRET` (perbandingan konstan-waktu), validasi `version`, kirim `npm:web-push` VAPID ke semua subscription, hapus yang 404/410, balas `{sent, failed, removed}`. |
+| 7 | CI | `android-release.yml` job `notify-devices`: step baru setelah FCM → `POST <SUPABASE_FUNCTIONS_URL>/send-update-push` dengan tag versi; fail-closed bila secret hilang/tag salah. |
+| 8 | Env/docs | `.env.example` (VITE_VAPID_PUBLIC_KEY + server secrets), README (seksi iOS + prasyarat + 2 secret CI baru), arsitektur. |
+
+### 25.2 Verifikasi
+
+| Pemeriksaan | Hasil |
+|---|---|
+| `tsc --noEmit` | 0 — PASS |
+| `vitest run` | 38/38 — PASS |
+| `vite build` | PASS |
+| `deno check` `send-update-push` (npm:web-push 3.6.7) | PASS |
+| `git diff --check` | 0 — PASS |
+
+### 25.3 Aksi user (di luar repo)
+
+1. `npx supabase db push` (atau jalankan migrasi) — tabel `push_subscriptions`.
+2. Deploy function: `npx supabase functions deploy send-update-push`.
+3. `npx supabase secrets set UPDATE_PUSH_SECRET=<panjang> VAPID_PUBLIC_KEY=<pub> VAPID_PRIVATE_KEY=<priv>` (pasangan dari `npx web-push generate-vapid-keys`; pub yang sama untuk `VITE_VAPID_PUBLIC_KEY` di Vercel).
+4. Secret GitHub: `SUPABASE_FUNCTIONS_URL` = `https://<ref>.supabase.co/functions/v1`, `UPDATE_PUSH_SECRET` = nilai sama dengan di Supabase.
+5. Deploy ulang `book-metadata` (prasyarat lama, §23) masih berlaku.
+
+### 25.4 Batasan
+
+- Web Push iOS butuh **iOS 16.4+** dan app dari **Layar Utama** (bukan tab Safari biasa).
+- Notif hanya terkirim kalau ada yang subscribe + function ter-deploy + secret cocok; gagal = job notify merah (setelah APK/manifest terbit).
+- Tanpa `fetch handler`, app tidak bisa dipakai offline (keputusan sadar — selalu versi terbaru).
+- App Store (APNs asli) tetap ditunda — butuh akun Apple Developer.
+- Belum ada commit/push/deploy nyata.

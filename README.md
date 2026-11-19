@@ -18,7 +18,7 @@ mini-book/
 │   ├── pages/               # Dashboard, Bookshelf, Scanner, Inventory, Members, Reports, Settings
 │   ├── services/
 │   │   ├── isbnValidator.ts  # ISBN-10/13 checksum algorithms & normalization
-│   │   ├── metadataService.ts# Open Library + Google Books fallback pipeline
+│   │   ├── metadataService.ts# Metadata lookup via book-metadata Edge Function (single pipeline)
 │   │   └── libraryService.ts # Local fallback and Supabase-backed library workflows
 │   ├── lib/
 │   │   └── supabase.ts      # Supabase client and runtime configuration
@@ -44,7 +44,7 @@ mini-book/
 
 - **Smart ISBN Barcode Scanner**:
   - Live video camera scanning via `@zxing/library` with real-time targeting laser and audio feedback.
-  - Multi-source fallback: searches **Open Library** and **Google Books**, then the **Perpustakaan Jakarta** catalog for ISBN records missing from global APIs.
+  - Server-side lookup: the **book-metadata** Edge Function searches **Open Library**, **Google Books**, then the **Perpustakaan Jakarta** catalog — the browser never calls those APIs directly.
   - One-click test barcodes for instant testing without webcam hardware (development builds only).
   - Mathematical checksum verification for ISBN-10 and ISBN-13 (EAN-13).
   - Normalization of ISBN-10 to standard ISBN-13.
@@ -145,11 +145,17 @@ npx cap open android
 ```
 
 ### Android updates without USB
-Tagged releases build a signed APK with GitHub Actions, upload it to a public Google Cloud Storage bucket, verify the uploaded object, publish an update manifest (`latest.json`) to the same bucket, and send a Firebase Cloud Messaging (FCM) notification to Android devices subscribed to the update topic. The source repository can remain private. The manifest is the source of truth for version checks; FCM is only a best-effort notification. When tapped, the notification opens the APK download; Android still asks the user to confirm installation.
+Tagged releases build a signed APK with GitHub Actions, upload it to a public Google Cloud Storage bucket, verify the uploaded object, publish an update manifest (`latest.json`) to the same bucket, and send a Firebase Cloud Messaging (FCM) notification to Android devices subscribed to the update topic. The source repository can remain private. The manifest is the source of truth for version checks; FCM is only a best-effort signal that triggers a manifest check. The app checks the manifest on startup (throttled) and from Settings → Application Updates. A notification shows one in-app banner; tapping it opens update details and the APK download. Android still asks the user to confirm installation.
 
-**Release version identity.** `versionName` comes from the tag (`v1.2.3` → `1.2.3`). `versionCode` is computed deterministically as `MAJOR*1000000 + MINOR*1000 + PATCH` (`v1.2.3` → `1002003`) by `scripts/version-utils.mjs`, replacing the old `GITHUB_RUN_NUMBER` scheme, which was not monotonic when an old tag's workflow was re-run. MINOR and PATCH must be 0–999, pre-release suffixes (`v1.2.3-rc.1`) are rejected, and the workflow refuses to publish a `latest.json` whose `versionCode` is not strictly greater than the currently published one. The same computed values are injected into the web bundle as `VITE_APP_VERSION` / `VITE_APP_VERSION_CODE`, so the app can compare its own installed version against the manifest at runtime.
+### Desktop updates (Windows and macOS)
+The same tag also triggers `desktop-release.yml`: it builds the Tauri 2 app on `windows-latest` and `macos-latest` (Apple Silicon), signs the updater artifacts with the minisign key `TAURI_SIGNING_PRIVATE_KEY`, uploads the installers (`.exe`, `.nsis.zip`, `.dmg`, `.app.tar.gz` + `.sig`) to `gs://<bucket>/desktop/` with content-length verification, and only then publishes the Tauri updater manifest at `https://storage.googleapis.com/<bucket>/desktop/latest.json` (`scripts/generate-desktop-manifest.mjs`). The desktop app checks that manifest on startup and from Settings → Application Updates; `Perbarui` downloads, verifies the minisign signature against the public key pinned in `src-tauri/tauri.conf.json`, installs, and relaunches. The updater endpoint is injected at build time by `scripts/prepare-desktop-build.mjs` (the bucket is a CI secret), which also stamps the tag version into `tauri.conf.json` and `Cargo.toml` so version comparison stays monotonic. macOS builds are unsigned/notarized only if you add Apple signing — without an Apple Developer identity, Gatekeeper warns on first launch; Windows shows SmartScreen warnings without an Authenticode certificate.
 
-**Update manifest.** After the APK upload is verified (HTTPS `content-length` must match the local file), CI generates `latest.json` (`scripts/generate-latest-manifest.mjs`) containing `schemaVersion`, `app` (`org.readowl.library`), `version`, `versionCode`, `releaseDate`, `downloadUrl` (HTTPS + host/path allowlist), `sha256`, `fileSize`, `changelog`, `forceUpdate`, and optionally `minimumSupportedVersionCode`. The manifest is published only after the APK and GitHub Release are in place, with `Cache-Control: public,max-age=60,must-revalidate` so clients never see it stale. The APK object keeps `Cache-Control: public,max-age=31536000,immutable` because release APK URLs are never reused for different content. See `READOWL-UPDATER-PLAN.md` for the in-app updater design that consumes this manifest.
+### iOS / browser updates (PWA + Web Push)
+iOS forbids apps from installing executables, so iOS uses the web app instead: open the site in Safari → **Share → Add to Home Screen**, then Settings → *Notifikasi Update (Web / iOS)* → *Aktifkan notifikasi update*. The browser subscribes to Web Push (VAPID), the subscription is stored in `push_subscriptions` (RLS: own rows only), and on every release tag `android-release.yml` calls the `send-update-push` Edge Function, which fans the notification out to all subscribers and deletes dead subscriptions (HTTP 404/410). Tapping the notification opens the app; the service worker (`public/sw.js`) deliberately has **no fetch handler** — nothing is cached, so opening always loads the latest deploy. Prerequisites: apply migration `20261119000000_push_subscriptions.sql`, deploy `send-update-push`, set the secrets below. Web Push requires iOS 16.4+ and a Home Screen install; desktop browsers with Web Push support get the same notifications.
+
+**Release version identity.** `versionName` comes from the tag (`v1.2.3` → `1.2.3`). `versionCode` is computed deterministically as `MAJOR*1000000 + MINOR*1000 + PATCH` (`v1.2.3` → `1002003`) by `scripts/version-utils.mjs`, replacing the old `GITHUB_RUN_NUMBER` scheme, which was not monotonic when an old tag's workflow was re-run. MINOR and PATCH must be 0–999, pre-release suffixes (`v1.2.3-rc.1`) are rejected, and the workflow refuses to publish a `latest.json` whose `versionCode` is not strictly greater than the currently published one. The same computed values are injected into the web bundle as `VITE_APP_VERSION` / `VITE_APP_VERSION_CODE`, so the app can compare its own installed version against the manifest at runtime. CI also injects `VITE_UPDATE_MANIFEST_URL` from the `APK_STORAGE_BUCKET` secret; without it, the checker stays disabled.
+
+**Update manifest.** After the APK upload is verified (HTTPS `content-length` must match the local file), CI generates `latest.json` (`scripts/generate-latest-manifest.mjs`) containing `schemaVersion`, `app` (`org.readowl.library`), `version`, `versionCode`, `releaseDate`, `downloadUrl` (HTTPS + host/path allowlist), `sha256`, `fileSize`, `changelog`, `forceUpdate`, and optionally `minimumSupportedVersionCode`. The manifest is published only after the APK and GitHub Release are in place, with `Cache-Control: public,max-age=60,must-revalidate` so clients never see it stale. The APK object keeps `Cache-Control: public,max-age=31536000,immutable` because release APK URLs are never reused for different content. The manifest is signed with Ed25519 (`scripts/sign-manifest.mjs`); CI signs it with the `UPDATER_SIGNING_PRIVATE_KEY` secret and the app pins the public key, so a tampered manifest is rejected before any download. See `READOWL-UPDATER-PLAN.md` for the in-app updater design that consumes this manifest.
 
 Before creating a release:
 1. Register an Android app in Firebase using the existing package ID `org.readowl.library`, download its `google-services.json`, and enable the Firebase Cloud Messaging API.
@@ -162,11 +168,17 @@ Before creating a release:
    - `FIREBASE_SERVICE_ACCOUNT`: Firebase service-account JSON with permission to send FCM messages.
    - `FIREBASE_PROJECT_ID`: Firebase project ID.
    - `APK_STORAGE_BUCKET`: the dedicated public APK bucket name.
-5. Push a version tag such as `v1.0.1`. The workflow uploads `MeelieFont-v1.0.1.apk`, verifies it, publishes `latest.json`, and notifies subscribed devices.
+   - `UPDATER_SIGNING_PRIVATE_KEY`: raw 32-byte Ed25519 seed, base64url encoded. Generate with `node scripts/sign-manifest.mjs --gen-key --out-key private.b64 --out-pub public.b64`, store the private value as the secret, and pin the printed public key in `src/services/updateService.ts` (`UPDATER_PUBLIC_KEY_B64`).
+   - `TAURI_SIGNING_PRIVATE_KEY`: desktop updater minisign private key (base64 content of the file written by `npx tauri signer generate -w <file> --ci`). Losing it means installed desktop apps can no longer verify updates — back it up outside the repo; never commit it.
+   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: password for that key (empty when generated with `--ci` and no `-p`).
+   - `SUPABASE_FUNCTIONS_URL`: Supabase functions base URL (`https://<project-ref>.supabase.co/functions/v1`).
+   - `UPDATE_PUSH_SECRET`: shared secret for the `send-update-push` Edge Function (any long random string).
+5. Set build/env values for Web Push: `VITE_VAPID_PUBLIC_KEY` (Vercel + CI, public half of `npx web-push generate-vapid-keys`) and Supabase secrets `UPDATE_PUSH_SECRET`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` via `npx supabase secrets set` (same key pair).
+6. Push a version tag such as `v1.0.1`. `android-release.yml` uploads `MeelieFont-v1.0.1.apk`, verifies it, signs and publishes `latest.json`, notifies Android devices (FCM) and web/iOS subscribers (`send-update-push`); `desktop-release.yml` builds Windows/macOS, uploads them to `gs://<bucket>/desktop/`, and publishes the desktop updater manifest last.
 
 The app asks Android for notification permission and subscribes to the `meeliefont-updates` FCM topic. Users must allow notifications and permit APK installation from their browser. Android does not allow silent APK installation. A device currently running a USB-installed debug APK may need that build uninstalled before the first release-signed APK can be installed; later updates work over the same signing key. The Android package ID is intentionally unchanged so installed copies remain eligible for in-place updates.
 
-The desktop wrapper directory is present, but this package does not currently define Tauri scripts or dependencies.
+The desktop wrapper (`src-tauri/`) is a Tauri 2 app: run `npx tauri dev` for a local desktop window (requires the Rust toolchain and platform webview dependencies) and `npx tauri build` for installers. `@tauri-apps/api`, `@tauri-apps/plugin-updater`, `@tauri-apps/plugin-process`, and `@tauri-apps/cli` are declared in `package.json`; `src-tauri/Cargo.lock` is committed for reproducible CI builds.
 
 ---
 

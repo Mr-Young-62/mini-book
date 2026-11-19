@@ -11,7 +11,8 @@
     "lint": "tsc --noEmit",
     "test": "vitest run",
     "release:version-code": "node scripts/version-utils.mjs",
-    "release:manifest": "node scripts/generate-latest-manifest.mjs"
+    "release:manifest": "node scripts/generate-latest-manifest.mjs",
+    "release:sign-manifest": "node scripts/sign-manifest.mjs"
   },
   "dependencies": {
     "@capacitor-firebase/messaging": "^8.6.0",
@@ -21,6 +22,9 @@
     "@capacitor/core": "^8.6.0",
     "@supabase/supabase-js": "^2.118.0",
     "@tailwindcss/vite": "^4.3.3",
+    "@tauri-apps/api": "^2.12.5",
+    "@tauri-apps/plugin-process": "^2.4.0",
+    "@tauri-apps/plugin-updater": "^2.14.1",
     "@vitejs/plugin-react": "^6.1.1",
     "@zxing/library": "^0.23.0",
     "firebase": "^12.19.0",
@@ -30,6 +34,7 @@
     "vite": "^8.3.0"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.12.6",
     "@types/node": "^22.14.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

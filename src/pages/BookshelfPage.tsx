@@ -8,6 +8,8 @@ import {
   Library,
   Plus,
   Trash2,
+  RotateCcw,
+  Archive,
   ExternalLink,
   CheckCircle,
   Clock,
@@ -84,6 +86,9 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [availabilityFilter, setAvailabilityFilter] = useState<'all' | 'available' | 'unavailable'>('all');
   const [viewMode, setViewMode] = useState<'shelf' | 'grid' | 'table'>('shelf');
+  const [showArchived, setShowArchived] = useState(false);
+  const [archivedBooks, setArchivedBooks] = useState<Book[]>([]);
+  const [archivedLoading, setArchivedLoading] = useState(false);
 
   // Selected book for detailed inspection modal
   const [activeBook, setActiveBook] = useState<Book | null>(null);
@@ -141,13 +146,45 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
     return matchesSearch && matchesCategory && matchesAvailability;
   });
 
+  const loadArchivedBooks = async () => {
+    setArchivedLoading(true);
+    try {
+      setArchivedBooks(await LibraryService.getArchivedBooks());
+    } catch (err) {
+      console.error('Error fetching archived books:', err);
+    } finally {
+      setArchivedLoading(false);
+    }
+  };
+
+  const toggleArchived = () => {
+    const next = !showArchived;
+    setShowArchived(next);
+    if (next) void loadArchivedBooks();
+  };
+
+  const handleRestoreBook = async (book: Book) => {
+    try {
+      const restored = await LibraryService.restoreBook(book.id);
+      if (!restored) {
+        window.alert('Gagal memulihkan. Mungkin sudah ada buku aktif dengan ISBN yang sama.');
+        return;
+      }
+      await Promise.all([loadArchivedBooks(), loadBooks()]);
+    } catch (err) {
+      console.error('Error restoring book:', err);
+      window.alert('Gagal memulihkan buku. Silakan coba lagi.');
+    }
+  };
+
   const handleDeleteBook = async (bookId: string) => {
     if (!window.confirm('Buku dengan copy fisik akan diarsipkan dan riwayat akuisisi tetap tersimpan. Buku tanpa copy akan dihapus permanen. Lanjutkan?')) {
       return;
     }
     await LibraryService.deleteBook(bookId);
     setActiveBook(null);
-    loadBooks();
+    await loadBooks();
+    if (showArchived) await loadArchivedBooks();
   };
 
   const handleAddCopySubmit = async (e: React.FormEvent) => {
@@ -237,6 +274,16 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
 
           {userRole !== 'Member' && (
             <button
+              onClick={toggleArchived}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#F0ECE4] hover:bg-[#E5E0D8] text-[#2C221E] text-xs font-semibold rounded-lg shadow-2xs transition-colors whitespace-nowrap"
+            >
+              <Archive className="w-3.5 h-3.5" />
+              <span>Arsip</span>
+            </button>
+          )}
+
+          {userRole !== 'Member' && (
+            <button
               onClick={onNavigateToScanner}
               className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#c62828] hover:bg-[#a61f1f] text-white text-xs font-semibold rounded-lg shadow-2xs transition-colors whitespace-nowrap"
             >
@@ -246,6 +293,53 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
           )}
         </div>
       </div>
+
+      {showArchived && userRole !== 'Member' && (
+        <div className="bg-white border border-[#E8E2D9] rounded-xl p-4 shadow-2xs">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Archive className="w-4 h-4 text-[#7E6F64]" />
+              <h2 className="text-xs font-bold uppercase tracking-wider text-[#2C221E]">Arsip Buku</h2>
+              <span className="text-[11px] text-[#7E6F64] font-mono">({archivedBooks.length})</span>
+            </div>
+            <button
+              onClick={() => setShowArchived(false)}
+              className="text-[11px] text-[#7E6F64] hover:text-[#2C221E]"
+            >
+              Tutup
+            </button>
+          </div>
+          {archivedLoading ? (
+            <div className="h-16 bg-[#F0ECE4] rounded-lg animate-pulse" />
+          ) : archivedBooks.length === 0 ? (
+            <p className="text-xs text-[#7E6F64]">Tidak ada buku yang diarsipkan.</p>
+          ) : (
+            <div className="space-y-2">
+              {archivedBooks.map((book) => (
+                <div
+                  key={book.id}
+                  className="flex items-center justify-between gap-3 p-2.5 rounded-lg border border-[#EAE5DE] bg-[#FAF8F5]"
+                >
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-[#2C221E] truncate">{book.title}</div>
+                    <div className="text-[10px] text-[#7E6F64] font-mono">
+                      ISBN {book.isbn_13} · {book.copies?.length || 0} copy ·
+                      {' '}diarsipkan {book.deleted_at ? new Date(book.deleted_at).toLocaleDateString() : '-'}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleRestoreBook(book)}
+                    className="inline-flex shrink-0 items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50 rounded-md transition-colors"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    Pulihkan
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Search and Filters Toolbar */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3 rounded-xl border border-[#E8E2D9] shadow-2xs">

@@ -1,14 +1,14 @@
 # READOWL — Dokumentasi Arsitektur & Struktur Repository Aktual
 
-> **Status dokumen: DONE (audit read-only selesai) + DIPERBARUI 18 November 2026 setelah Tahap A
-> implementasi updater** (2 script baru di `scripts/`, alur rilis CI + konfigurasi versi diperbarui —
-> ditandai "Tahap A"). Dokumen ini disusun dari pembacaan kode aktual repository, bukan dari asumsi
-> atau informasi lama.
+> **Status dokumen: DONE (audit read-only) + DIPERBARUI 18–19 November 2026 setelah Tahap A–F
+> implementasi updater** (Android A–E, desktop Windows/macOS F; alur rilis CI, `scripts/`, inventaris
+> updater, dan status `src-tauri` diperbarui — ditandai per tahap). Dokumen ini disusun dari
+> pembacaan kode aktual repository, bukan dari asumsi atau informasi lama.
 >
-> Tanggal audit: 18 November 2026 · Branch `main` @ `ba4ab9f` · Remote `Mr-Young-62/mini-book`
+> Tanggal audit: 18 November 2026 · Remote `Mr-Young-62/mini-book`
 > Kondisi proyek: **DEVELOPMENT / TESTING** — Security Remediation masih berlangsung
-> (`SECURITY-REMEDIATION.md`). Audit ini **tidak mengubah satu baris kode pun** ( Tahap A = fitur
-> updater terpisah, lihat `PROGRESS.md` §14).
+> (`SECURITY-REMEDIATION.md`). Audit awal tidak mengubah kode; pembaruan sesudahnya = fitur
+> updater terpisah, lihat `PROGRESS.md` §14–§24.
 
 ---
 
@@ -17,13 +17,14 @@
 | Lapisan | Teknologi | Bukti di repo |
 |---|---|---|
 | Frontend | React 19 + TypeScript + Vite 8 + Tailwind 4 | `package.json` |
-| State | React `useState`/`useEffect` + static class `LibraryService` + `localStorage` | **Tidak ada** Redux/Zustand/React Query, **tidak ada** folder `hooks/` |
+| State | React `useState`/`useEffect` + static class `LibraryService` + `localStorage` + `src/hooks/` (`useAppUpdater`) | **Tidak ada** Redux/Zustand/React Query |
 | Backend | Supabase (PostgREST, Auth, Edge Functions) | `src/lib/supabase.ts`, `supabase/` |
 | Mobile | Capacitor 8 (Android) | `capacitor.config.ts`, `android/` |
-| Desktop | Tauri (**dorman** — ada folder, tidak ada script/npm deps) | `src-tauri/` |
+| Desktop | Tauri 2 + `tauri-plugin-updater`/`plugin-process` (Tahap F — Windows & macOS) | `src-tauri/`, `package.json` |
 | Scan barcode | `@zxing/library` | `src/components/scanner/BarcodeScanner.tsx` |
-| Push update (lama) | Firebase Cloud Messaging via `@capacitor-firebase/messaging` | `src/components/UpdateNotifications.tsx` |
-| CI/CD | GitHub Actions (1 workflow: rilis APK ber-tag) | `.github/workflows/android-release.yml` |
+| Push update (Android) | Firebase Cloud Messaging via `@capacitor-firebase/messaging` (pelengkap) | `src/components/UpdateNotifications.tsx` |
+| Push update (iOS/web) | Web Push VAPID + service worker (Tahap G — PWA, tanpa App Store) | `src/services/pushService.ts`, `public/sw.js`, `supabase/functions/send-update-push` |
+| CI/CD | GitHub Actions (2 workflow rilis ber-tag: APK + desktop) | `.github/workflows/android-release.yml`, `desktop-release.yml` |
 | Test | Vitest 5 (3 file, 18 test) | `src/**/*.test.ts` |
 
 ---
@@ -35,9 +36,10 @@ mini-book/
 ├── .env                    # Konfigurasi build lokal (REAL SECRET — ignored, ter-stage sebagai D)
 ├── .env.example            # Template placeholder (bersih)
 ├── .gitattributes          # EOL lf + binary (png/jar/jks/apk dst.)
-├── .gitignore              # node_modules, dist, .env*, google-services.json, *.jks, supabase/.temp/
+├── .gitignore              # node_modules, dist, .env*, google-services.json, *.jks, supabase/.temp/, src-tauri/target/, src-tauri/gen/
 ├── capacitor.config.ts     # Konfigurasi Capacitor (appId, webDir, server)
-├── index.html              # Entry HTML + guard window.fetch
+├── index.html              # Entry HTML + guard window.fetch + meta PWA/iOS
+├── public/                 # PWA: manifest.webmanifest, sw.js (push only), ikon 180/192/512
 ├── metadata.json           # Metadata AI Studio (requestFramePermissions: camera)
 ├── package.json            # Deps, scripts (dev/build/preview/clean/lint/test)
 ├── package-lock.json       # Lockfile npm (satu-satunya lockfile resmi)
@@ -50,12 +52,16 @@ mini-book/
 │
 ├── .github/
 │   └── workflows/
-│       └── android-release.yml   # SATU-satunya workflow: tag v* → APK signed → GCS → GH Release → FCM
+│       ├── android-release.yml   # Tag v* → APK signed → GCS → GH Release → FCM
+│       └── desktop-release.yml   # Tag v* → build Windows/macOS → GCS desktop/ → desktop/latest.json
 │
 ├── scripts/
 │   ├── check-services.ps1        # Diagnostik koneksi Supabase/Google Books/hosting dari .env
-│   ├── version-utils.mjs         # BARU (Tahap A): skema versionCode MAJOR*1e6+MINOR*1e3+PATCH + gate monoton
-│   └── generate-latest-manifest.mjs # BARU (Tahap A): generator manifest update latest.json (allowlist URL, fail-closed)
+│   ├── version-utils.mjs         # Skema versionCode MAJOR*1e6+MINOR*1e3+PATCH + gate monoton (Tahap A)
+│   ├── generate-latest-manifest.mjs # Generator manifest APK latest.json (allowlist, fail-closed, Tahap A)
+│   ├── sign-manifest.mjs         # Penanda tangan Ed25519 manifest APK (Tahap E)
+│   ├── prepare-desktop-build.mjs # Injeksi versi tag + endpoint updater ke tauri.conf/Cargo.toml (Tahap F)
+│   └── generate-desktop-manifest.mjs # Perakit manifest Tauri v2 desktop/latest.json, fail-closed (Tahap F)
 │
 ├── src/                          # ===== FRONTEND =====
 │   ├── main.tsx                  # Entry web: createRoot → <App />
@@ -86,7 +92,7 @@ mini-book/
 │   │   └── SettingsPage.tsx      # Konfigurasi Supabase + profil (306 baris) ← KANDIDAT UI UPDATER
 │   ├── services/
 │   │   ├── libraryService.ts     # Core domain: buku, copy, anggota, settings, log (727 baris)
-│   │   ├── metadataService.ts    # Lookup metadata ISBN: Edge Function → Open Library → Google Books (463 baris)
+│   │   ├── metadataService.ts    # Lookup metadata ISBN: Edge Function `book-metadata` saja (185 baris)
 │   │   ├── codeResolver.ts (+test) # Resolver kode inventaris
 │   │   ├── isbnValidator.ts (+test)# Validasi ISBN-10/13
 │   │   └── digitalBookService.ts # ⚠ 0 BYTE
@@ -116,7 +122,8 @@ mini-book/
 │   ├── seed.sql                 # Seed data (branding MeelieFont)
 │   ├── .temp/                   # ⚠ Linked project ref (jrlpwmsgptayfymguhnl) — gitignored
 │   ├── functions/
-│   │   └── book-metadata/index.ts   # SATU-satunya Edge Function lokal (admin/reports: staged deletion)
+│   │   ├── book-metadata/index.ts   # Edge Function metadata ISBN (admin/reports: staged deletion)
+│   │   └── send-update-push/index.ts # Edge Function Web Push rilis (Tahap G, secret header)
 │   └── migrations/              # 11 file SQL (6 tracked di HEAD + 5 baru untracked)
 │       ├── 20261102000000_initial_schema.sql      # ⚠ BOM UTF-8 + pernah dimodifikasi (drift, lihat T1 di PROGRESS.md)
 │       ├── 20261102000001_functions.sql
@@ -125,10 +132,14 @@ mini-book/
 │       ├── 20261105163600_rebrand_meeliefont.sql
 │       ├── 20261105170000_digital_books.sql       # ⚠ 0 BYTE, selalu 0 byte sejak dibuat
 │       └── 20261118000000..000400 (5 migrasi baru) # Belum di-push (db push DILARANG di tahap ini)
+│       └── 20261119000000_push_subscriptions.sql   # Web Push (Tahap G) — file saja, belum dijalankan
 │
-├── src-tauri/                   # Wrapper desktop Tauri — DORMAN
-│   ├── tauri.conf.json          # version 1.0.0, identifier org.readowl.desktop
-│   ├── Cargo.toml, src/main.rs  # Ada, tetapi package.json tidak punya script/deps Tauri
+├── src-tauri/                   # App desktop Tauri 2 (Tahap F — aktif)
+│   ├── tauri.conf.json          # versi + endpoint updater diinjeksi CI; pubkey minisign di-pin
+│   ├── Cargo.toml, Cargo.lock   # tauri + plugin updater/process/opener (lock di-commit)
+│   ├── build.rs, src/main.rs    # registrasi plugin
+│   ├── capabilities/            # izin JS: core, opener, updater, process
+│   └── icons/                   # ikon hasil `npx tauri icon` (source-icon.png dari logo)
 │
 └── node_modules/                # (di-ignore)
 ```
@@ -146,7 +157,7 @@ mini-book/
 | `MainLayout.tsx` | Shell UI: sidebar (dashboard, scanner, members, books, settings — difilter per role), header (tombol Scan ISBN + Sign out), drawer mobile. **Tidak ada item nav `reports`.** |
 | `LibraryService` (static) | Simpan/muat data via Supabase + fallback `localStorage` (prefix `readowl_*`), logging aktivitas, settings lokal. |
 | `supabase.ts` | Inisialisasi client dari env build-time atau override `localStorage`; **menolak** service-role key di browser; export `isSupabaseConfigured`. |
-| `metadataService.ts` | Urutan lookup ISBN: Edge Function `book-metadata` → fetch langsung Open Library → fetch langsung Google Books (**tanpa API key** di URL — key sudah dihapus dari bundle). |
+| `metadataService.ts` | Satu-satunya sumber lookup ISBN: Edge Function `book-metadata` (server-side). Fetch langsung Open Library/Google Books sudah dihapus dari klien. |
 
 ### 3.2 Android (`android/`)
 
@@ -162,7 +173,8 @@ mini-book/
 
 | Komponen | Fungsi |
 |---|---|
-| `functions/book-metadata` | Proxy lookup metadata ISBN dengan `GOOGLE_BOOKS_API_KEY` server-side (satu-satunya fungsi lokal; `admin` & `reports` staged deletion — risiko remote masih ter-deploy, lihat `SECURITY-REMEDIATION.md` §6). |
+| `functions/book-metadata` | Proxy lookup metadata ISBN dengan `GOOGLE_BOOKS_API_KEY` server-side (`admin` & `reports` staged deletion — risiko remote masih ter-deploy, lihat `SECURITY-REMEDIATION.md` §6). |
+| `functions/send-update-push` | Web Push rilis ke subscriber `push_subscriptions` (Tahap G); auth `Bearer UPDATE_PUSH_SECRET`; hapus subscription mati 404/410. |
 | `migrations/` | Skema: tabel, RPC, RLS. 5 migrasi `20261118*` **belum diterapkan** ke remote. |
 | `config.toml` | Tidak ada `[functions.*]` → `verify_jwt` default `true`. |
 
@@ -207,7 +219,7 @@ mini-book/
 │       │                                       │   book-metadata     │   │
 │       │                                       └─────────────────────┘   │
 │       │                                                                 │
-│       └─ fetch langsung (fallback): Open Library, Google Books (tanpa key)│
+│       └─ fetch langsung pihak ketiga dihapus; semua via Edge Function│
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -254,7 +266,7 @@ mini-book/
 1. **PostgREST** (`supabase.from(...).select/insert/update`) — data utama.
 2. **RPC** (`supabase.rpc('current_user_role' | 'add_book_with_copies_atomic' | ...)`) — operasi bertransaksi/role.
 3. **Edge Function** (`metadataClient.functions.invoke('book-metadata')`).
-4. **Fetch langsung pihak ketiga** (Open Library, Google Books) — fallback, tanpa key, timeout 7 dtk.
+4. ~~Fetch langsung pihak ketiga~~ — **dihapus** (pipeline tunggal lewat Edge Function `book-metadata`).
 
 ### 4.6 Build & release
 
@@ -273,10 +285,32 @@ git tag v1.2.3 && git push --tags
   → generate latest.json (sha256 + size + gate monoton vs manifest terbit)    ← Tahap A
     → unggah latest.json (Cache-Control: public,max-age=60,must-revalidate)
   → job notify-devices: kirim FCM {version, apkUrl} ke topic meeliefont-updates (pelengkap)
+      + POST send-update-push (Web Push iOS/web, secret header; butuh migrasi + function ter-deploy)
 ```
 
 > Aturan urutan: `latest.json` hanya diterbitkan **setelah** APK terunggah, terverifikasi, dan
 > GitHub Release terbit — manifest tidak pernah menunjuk APK yang belum tersedia.
+
+```text
+git tag v1.2.3 && git push --tags (jalur kedua, paralel — Tahap F)
+  → desktop-release.yml (jobs: build [windows-latest, macos-latest] + publish)
+  → npm ci
+  → scripts/prepare-desktop-build.mjs --tag --endpoint
+      → versi tag → src-tauri/tauri.conf.json + Cargo.toml
+      → plugins.updater.endpoints = https://storage.googleapis.com/<bucket>/desktop/latest.json
+        (bucket = secret CI; repo private → endpoint wajib GCS publik, bukan GitHub Releases)
+  → injeksi VITE_APP_VERSION* → npx tauri build
+      → TAURI_SIGNING_PRIVATE_KEY (minisign) → artefak .nsis.zip/.app.tar.gz + .sig
+  → stage bundle/* (*.exe, *.nsis.zip, *.dmg, *.app.tar.gz + *.sig)
+  → job publish: gcloud upload → gs://<bucket>/desktop/ (cache immutable)
+      → verifikasi HEAD content-length = ukuran lokal (sama seperti APK)
+  → scripts/generate-desktop-manifest.mjs (fail-closed: wajib windows + macos ber-SIG)
+      → desktop/latest.json format Tauri v2 (version, notes, pub_date, platforms)
+  → unggah desktop/latest.json TERAKHIR (public,max-age=60,must-revalidate)
+```
+
+> Notif desktop = **in-app check** (startup + Settings), bukan push — Windows/macOS tidak punya
+> FCM. iOS belum (butuh PWA+Web Push atau App Store).
 
 ### 4.7 Lokasi konfigurasi versi
 
@@ -287,7 +321,7 @@ git tag v1.2.3 && git push --tags
 | CI `android-release.yml` (step Build web + Build APK) | `APP_VERSION = tag (v1.2.3→1.2.3)`, `APP_VERSION_CODE = MAJOR*1e6+MINOR*1e3+PATCH` via `scripts/version-utils.mjs` (**menggantikan `GITHUB_RUN_NUMBER`**, Tahap A) | **Sumber versi efektif APK** |
 | Bundle web (hasil build CI) | `import.meta.env.VITE_APP_VERSION` / `VITE_APP_VERSION_CODE` — disuntik CI dari tag (Tahap A) | Versi runtime app; build lokal tanpa env → kosong → checker nonaktif (F-1 selesai untuk build rilis) |
 | Manifest `latest.json` di bucket GCS | `version` + `versionCode` + `sha256` + … (Tahap A) | **Sumber kebenaran versi untuk updater** |
-| `src-tauri/tauri.conf.json` | `1.0.0` | Desktop dorman |
+| `src-tauri/tauri.conf.json` + `Cargo.toml` | versi = tag via `scripts/prepare-desktop-build.mjs` (CI) | Sumber versi desktop; endpoint updater diinjeksi CI, pubkey minisign di-pin (Tahap F) |
 
 ---
 
@@ -297,17 +331,19 @@ git tag v1.2.3 && git push --tags
 
 | Kebutuhan | Status | Bukti |
 |---|---|---|
-| Version management | **Lengkap (Tahap A)** — versi = git tag; versionCode deterministik `MAJOR*1e6+MINOR*1e3+PATCH` (gate monoton di generator); bundle web disuntik `VITE_APP_VERSION*` oleh CI. Sisa: konsumsi runtime oleh app (Tahap B) | §4.7, `scripts/version-utils.mjs` |
-| Update checker | **TIDAK ADA** yang membandingkan versi. Yang ada hanya **notifikasi push FCM** | `UpdateNotifications.tsx` |
-| Update notification | **ADA** — FCM topic `meeliefont-updates`, banner toast "Pembaruan MeelieFont tersedia" + tombol Nanti/Unduh APK | `UpdateNotifications.tsx`, CI `notify-devices` |
-| Download manager | **TIDAK ADA** in-app — `Browser.open(apkUrl)` membuka **browser eksternal**, unduhan ditangani browser | `UpdateNotifications.tsx:35` |
+| Version management | **Lengkap (Tahap A+B)** — versi = git tag; versionCode deterministik `MAJOR*1e6+MINOR*1e3+PATCH`; bundle web disuntik `VITE_APP_VERSION*` + dikonsumsi runtime (`getCurrentVersion`) | §4.7, `updateService.ts` |
+| Update checker | **ADA (Tahap B)** — bandingkan `versionCode` vs manifest, throttle 6/12/24 jam, cache 24 jam, retry; desktop: `tauri-plugin-updater.check()` | `updateService.ts`, `useAppUpdater.ts` |
+| Update notification | **ADA** — Android: FCM topic `meeliefont-updates` (pelengkap) + banner in-app; desktop: banner in-app saat check menemukan versi baru; iOS/web: Web Push via `send-update-push` (Tahap G) | `UpdateNotifications.tsx`, `DesktopUpdateBanner.tsx`, `send-update-push` |
+| Download manager | **ADA (Tahap C)** — unduh in-app dengan progress/resume/cancel + cleanup file lama; desktop: `downloadAndInstall()` dari plugin | `updaterBridge.ts`, `AppUpdaterPlugin.java` |
 | Native FileProvider | **ADA** — `androidx.core.content.FileProvider`, authority `${applicationId}.fileprovider`, path external + cache | `AndroidManifest.xml:27-35`, `file_paths.xml` |
-| Permission instalasi APK | **TIDAK ADA** — `REQUEST_INSTALL_PACKAGES` tidak ada di manifest | `AndroidManifest.xml` |
-| Membuka Package Installer | **TIDAK ADA** — tidak ada kode `Intent ACTION_VIEW`/`ACTION_INSTALL_PACKAGE` sama sekali | grep 0 kecocokan |
-| Release metadata / manifest | **ADA (Tahap A)** — `latest.json` di bucket GCS (dihasilkan + diverifikasi CI, urutan terakhir), di samping GitHub Release notes (auto) + objek APK. Belum ditandatangani Ed25519 (Tahap E) | `scripts/generate-latest-manifest.mjs`, step CI "Publish update manifest" |
-| Validasi URL update (existing) | **ADA** — pola ketat: `https:` + host `storage.googleapis.com` + path `/<bucket>/MeelieFont-*.apk` | `UpdateNotifications.tsx:28` |
-| Cache metadata versi | **TIDAK ADA** | — |
-| Cek versi manual (Settings/About) | **TIDAK ADA** — `SettingsPage` tidak memuat info versi | `SettingsPage.tsx` |
+| Permission instalasi APK | **ADA (Tahap D)** — `REQUEST_INSTALL_PACKAGES` | `AndroidManifest.xml` |
+| Membuka Package Installer | **ADA (Tahap D)** — `AppUpdaterPlugin.install()` + cek `canRequestPackageInstalls` → settings bila belum | `AppUpdaterPlugin.java` |
+| Release metadata / manifest | **ADA + ditandatangani** — APK `latest.json` Ed25519 (Tahap E); desktop `desktop/latest.json` format Tauri v2 + SIG minisign (Tahap F); keduanya terbit terakhir setelah artefak terverifikasi | `generate-latest-manifest.mjs`, `generate-desktop-manifest.mjs` |
+| Validasi URL update | **ADA** — pola ketat: `https:` + host `storage.googleapis.com` + path `/<bucket>/MeelieFont-*.apk`; endpoint desktop divalidasi `prepare-desktop-build.mjs` | `updateService.ts`, `prepare-desktop-build.mjs` |
+| Cache metadata versi | **ADA (Tahap B)** — localStorage 24 jam + throttle check | `updateService.ts` |
+| Cek versi manual (Settings) | **ADA (Tahap B+F)** — tombol "Periksa pembaruan" + status versi (Android & desktop) | `SettingsPage.tsx` |
+| Integritas artefak | **ADA** — SHA-256 + ukuran APK (Tahap E: `verifyArchive`), SIG minisign desktop diverifikasi plugin sebelum instal | `AppUpdaterPlugin.java`, tauri-plugin-updater |
+| Keamanan signing key | **ADA (Tahap E/F)** — key APK Ed25519 + key desktop minisign hanya di secret CI; tidak pernah di repo | README §5 |
 
 ### 5.2 Cara kerja mekanisme update lama (FCM)
 
@@ -342,7 +378,7 @@ CI selesai build → FCM kirim pesan {version, apkUrl} ke topic meeliefont-updat
 | F-7 | 5 file **0 byte** (`3 reader`, `digitalBookService`, migrasi `digital_books`) — belum diputuskan (lanjut/hapus), tercatat di `SECURITY-REMEDIATION.md` §7. | WARNING (belum diputuskan) |
 | F-8 | Dependensi `firebase@12.19` membawa **11 advisori high** (rantai `@grpc/grpc-js`) — jika updater manifest-based menggantikan FCM, dependensi ini kandidat dihapus (**butuh persetujuan user**, terkait `SECURITY-REMEDIATION.md` W4). | WARNING |
 | F-9 | `metadataService` fallback Google Books kini fetch **tanpa API key** (key sudah dihapus dari bundle) → kena kuota publik/anonim; jalur utama tetap Edge Function. | INFO |
-| F-10 | `src-tauri/` dorman — jangan tertukar saat menyusun release plan desktop. | INFO |
+| F-10 | `src-tauri/` dorman → **RESOLVED (Tahap F)**: Tauri 2 aktif (build.rs, capabilities, ikon, plugin updater/process, `desktop-release.yml`, pubkey minisign) | ✅ Tahap F |
 
 ---
 
@@ -350,4 +386,4 @@ CI selesai build → FCM kirim pesan {version, apkUrl} ke topic meeliefont-updat
 
 - Audit **read-only**: tidak ada kode, konfigurasi, migrasi, credential, atau commit yang diubah.
 - Status keamanan berjalan terpisah di `SECURITY-REMEDIATION.md` (JANGAN DIHAPUS/DIUBAH).
-- Rancangan updater ada di [`READOWL-UPDATER-PLAN.md`](./READOWL-UPDATER-PLAN.md) — **belum diimplementasikan**.
+- Rancangan updater ada di [`READOWL-UPDATER-PLAN.md`](./READOWL-UPDATER-PLAN.md) — **diimplementasikan Tahap A–E (Android)**; desktop Tahap F mengikuti pola terpisah (lihat §4.6).

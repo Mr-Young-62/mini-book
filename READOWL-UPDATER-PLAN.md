@@ -1,7 +1,9 @@
 # READOWL — Rancangan Custom In-App APK Updater
 
-> **Status dokumen: IN PROGRESS — Tahap A (fondasi) SUDAH DIIMPLEMENTASIKAN & diverifikasi
-> 18 November 2026; Tahap B–E belum dikerjakan, menunggu approval per tahap.**
+> **Status dokumen: IN PROGRESS — Tahap A (fondasi) DONE 18 November 2026 · Tahap B (update checker)
+> DONE 19 November 2026 · Tahap C (APK downloader) DONE 19 November 2026 · Tahap D (APK installer)
+> DONE 19 November 2026 · Tahap E (security & testing) DONE 19 November 2026 — seluruh tahap
+> A–E selesai; tinggal build APK + uji perangkat + konfigurasi secret CI.**
 > Log implementasi: [`PROGRESS.md`](./PROGRESS.md) section 14.
 >
 > Tanggal rancangan: 18 November 2026 · Berbasis audit aktual: [`READOWL-ARCHITECTURE.md`](./READOWL-ARCHITECTURE.md)
@@ -441,7 +443,7 @@ Aturan:
 
 **Hasil verifikasi Tahap A**: `tsc --noEmit` 0 · `vitest run` 18/18 · `vite build` PASS · `git diff --check` 0 · parse YAML OK + `bash -n` 5/5 blok · secret scan 0 · uji unit script (harness sementara) 36/36. Detail: `PROGRESS.md` §14.4–14.5.
 
-### Tahap B — Update checker
+### Tahap B — Update checker — ✅ **DONE (19 November 2026)**
 
 | Aksi | File |
 |---|---|
@@ -452,7 +454,7 @@ Aturan:
 | Cek manual + info versi | **Ubah**: `src/pages/SettingsPage.tsx` (section baru sebelum Form Actions, baris ~292) |
 | Baca versi build | via `import.meta.env.VITE_APP_VERSION_CODE` (hasil Tahap A) |
 
-### Tahap C — APK downloader
+### Tahap C — APK downloader — ✅ **DONE (19 November 2026)**
 
 | Aksi | File |
 |---|---|
@@ -461,7 +463,7 @@ Aturan:
 | UI progress/cancel | **Ubah**: `src/components/updater/UpdateDialog.tsx` (state 6–9) |
 | Dependency bridge | **Ubah**: `package.json` (bila pakai API Capacitor resmi untuk plugin custom — review kebutuhan aktual) |
 
-### Tahap D — Android installer
+### Tahap D — Android installer — ✅ **DONE (19 November 2026)**
 
 | Aksi | File |
 |---|---|
@@ -470,7 +472,7 @@ Aturan:
 | Cek permission + `ACTION_VIEW` installer + `canRequestPackageInstalls` | **Ubah**: plugin `AppUpdaterPlugin` (Tahap C) + `MainActivity.java` |
 | Alur permission UX di WebView | **Ubah**: `src/components/updater/UpdateDialog.tsx` (state 8) |
 
-### Tahap E — Security & testing
+### Tahap E — Security & testing — ✅ **DONE (19 November 2026)**
 
 | Aksi | File |
 |---|---|
@@ -487,7 +489,7 @@ yang sedang berjalan (migrasi, rotasi, Edge Functions — tetap urutan di `SECUR
 
 ## 11. Ringkasan status & keputusan
 
-**Status dokumen: IN PROGRESS — Tahap A DONE & diverifikasi (18 November 2026); Tahap B–E tertunda approval.**
+**Status dokumen: DONE — Tahap A (18 November 2026) · Tahap B–E (19 November 2026) selesai; tinggal konfigurasi secret CI + build APK + uji perangkat.**
 
 | # | Keputusan / pekerjaan | Jenis | Status |
 |---|---|---|---|
@@ -499,7 +501,7 @@ yang sedang berjalan (migrasi, rotasi, Edge Functions — tetap urutan di `SECUR
 | 6 | FCM dipertahankan sebagai notifikasi tambahan; manifest = sumber kebenaran versi; **anti-duplikasi banner** | Keputusan | ✅ Disetujui — aturan anti-double-banner jadi syarat desain Tahap B (§8.1, lihat catatan §11.1) |
 | 7 | F-6: `ReportsPage` orphan — **jangan dihapus & jangan diaktifkan**, biarkan sampai keputusan terpisah | Keputusan | ✅ Disetujui — tidak disentuh |
 | 8 | F-4: persempit `file_paths.xml` sesuai kebutuhan aktual **tanpa merusak fitur lain** | Keputusan | ✅ Disetujui — dijadwalkan Tahap D (audit kebutuhan path dulu) |
-| 9 | Implementasi bertahap Tahap A→E, laporan per tahap sebelum lanjut | Implementasi | 🔄 **Berjalan**: A DONE → B menunggu approval A |
+| 9 | Implementasi bertahap Tahap A→E, laporan per tahap sebelum lanjut | Implementasi | ✅ **Selesai**: A DONE → B DONE → C DONE → D DONE → E DONE (18–19 November 2026) |
 
 ### 11.1 Aturan anti-duplikasi notifikasi (hasil approval poin 6)
 
