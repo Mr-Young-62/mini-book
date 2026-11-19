@@ -180,7 +180,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           Library & System Settings
         </h1>
         <p className="text-xs text-[#7E6F64]">
-          Configure your Supabase database connection, library metadata, and inventory defaults.
+          Configure your Supabase database connection and library metadata.
         </p>
       </div>
 

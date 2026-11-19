@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import {
   QrCode,
-  Users,
   BarChart3,
   Library,
   Settings as SettingsIcon,
@@ -35,7 +34,6 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: BarChart3, roles: ['Administrator', 'Librarian', 'Member'] },
     { id: 'scanner', label: 'ISBN Scanner', icon: QrCode, roles: ['Administrator', 'Librarian'] },
-    { id: 'members', label: 'Members', icon: Users, roles: ['Administrator', 'Librarian'] },
     { id: 'books', label: 'Book Shelf', icon: Library, roles: ['Administrator', 'Librarian', 'Member'] },
     { id: 'settings', label: 'Settings', icon: SettingsIcon, roles: ['Administrator'] },
   ];

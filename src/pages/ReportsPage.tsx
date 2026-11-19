@@ -4,13 +4,11 @@ import {
   Printer,
 } from 'lucide-react';
 import { LibraryService } from '../services/libraryService';
-import { BookCopy } from '../types/library';
+import { Book } from '../types/library';
 import { downloadCsv } from '../lib/csv';
 
 export const ReportsPage: React.FC = () => {
-  const currency = LibraryService.getSettings().library_info.currency || 'IDR';
-  const [copies, setCopies] = useState<BookCopy[]>([]);
-  const [memberCount, setMemberCount] = useState(0);
+  const [books, setBooks] = useState<Book[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -20,12 +18,7 @@ export const ReportsPage: React.FC = () => {
   const loadReportsData = async () => {
     setLoading(true);
     try {
-      const [c, members] = await Promise.all([
-        LibraryService.getCopies(),
-        LibraryService.countMembers(),
-      ]);
-      setCopies(c);
-      setMemberCount(members);
+      setBooks(await LibraryService.getBooks());
     } catch (err) {
       console.error('Error loading reports data:', err);
     } finally {
@@ -33,28 +26,16 @@ export const ReportsPage: React.FC = () => {
     }
   };
 
-  // Group copies by category for valuation
-  const categoryValuationMap: Record<string, { count: number; totalCost: number }> = {};
-  copies.forEach((copy) => {
-    const cat = copy.book?.categories[0]?.name || 'General Collection';
-    if (!categoryValuationMap[cat]) {
-      categoryValuationMap[cat] = { count: 0, totalCost: 0 };
-    }
-    categoryValuationMap[cat].count += 1;
-    categoryValuationMap[cat].totalCost += copy.acquisition_price || 0;
+  const categoryCounts: Record<string, number> = {};
+  books.forEach((book) => {
+    const category = book.categories[0]?.name || 'General Collection';
+    categoryCounts[category] = (categoryCounts[category] || 0) + 1;
   });
 
-  const totalValuation = copies.reduce((sum, copy) => sum + (copy.acquisition_price || 0), 0);
-  const maintenanceCount = copies.filter((copy) => copy.status === 'Maintenance' || copy.status === 'Damaged').length;
-
-  const handleExportValuationCsv = () => {
-    const headers = ['Category', 'Physical Copies Count', `Total Acquired Value (${currency})`];
-    const rows = Object.entries(categoryValuationMap).map(([cat, data]) => [
-      cat,
-      data.count,
-      data.totalCost.toFixed(2),
-    ]);
-    downloadCsv('meeliefont_valuation_report', headers, rows);
+  const handleExportCatalogCsv = () => {
+    const headers = ['Category', 'Titles'];
+    const rows = Object.entries(categoryCounts).map(([category, count]) => [category, String(count)]);
+    downloadCsv('meeliefont_catalog_report', headers, rows);
   };
 
   return (
@@ -63,7 +44,7 @@ export const ReportsPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#EAE5DE] pb-4">
         <div>
           <p className="text-xs text-[#7E6F64]">
-            Collection valuation, inventory status, and exportable catalog summaries.
+            Catalog summary by subject.
           </p>
         </div>
 
@@ -79,38 +60,30 @@ export const ReportsPage: React.FC = () => {
       </div>
 
       {/* Summary KPI Strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="bg-white border border-[#E8E2D9] rounded-xl p-4 shadow-2xs">
-          <span className="text-[11px] text-[#7E6F64] block mb-1">Total Valuation</span>
-          <div className="text-xl font-bold font-mono text-[#2C221E] tabular-nums">
-            {currency} {totalValuation.toFixed(2)}
-          </div>
-          <span className="text-[10px] text-[#A89F91]">{loading ? 'Loading...' : `${copies.length} cataloged assets`}</span>
+          <span className="text-[11px] text-[#7E6F64] block mb-1">Total Titles</span>
+          <div className="text-xl font-bold font-mono text-[#2C221E] tabular-nums">{books.length}</div>
+          <span className="text-[10px] text-[#A89F91]">Cataloged books</span>
         </div>
 
         <div className="bg-white border border-[#E8E2D9] rounded-xl p-4 shadow-2xs">
-          <span className="text-[11px] text-[#7E6F64] block mb-1">Copies Needing Attention</span>
-          <div className="text-xl font-bold font-mono text-[#2C221E] tabular-nums">{maintenanceCount}</div>
-          <span className="text-[10px] text-[#A89F91]">Maintenance or damaged</span>
+          <span className="text-[11px] text-[#7E6F64] block mb-1">Subjects</span>
+          <div className="text-xl font-bold font-mono text-[#2C221E] tabular-nums">{Object.keys(categoryCounts).length}</div>
+          <span className="text-[10px] text-[#A89F91]">Categories in use</span>
         </div>
 
-        <div className="bg-white border border-[#E8E2D9] rounded-xl p-4 shadow-2xs">
-          <span className="text-[11px] text-[#7E6F64] block mb-1">Registered Members</span>
-          <div className="text-xl font-bold font-mono text-[#2C221E] tabular-nums">{memberCount}</div>
-          <span className="text-[10px] text-[#A89F91]">Library membership records</span>
-        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6">
-        {/* Category Valuation Breakdown */}
         <div className="bg-white border border-[#E8E2D9] rounded-xl p-5 shadow-2xs space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-[#F0ECE4]">
             <div>
-              <h3 className="text-sm font-bold text-[#2C221E]">Collection Valuation by Subject</h3>
-              <p className="text-xs text-[#7E6F64]">Capital asset breakdown</p>
+              <h3 className="text-sm font-bold text-[#2C221E]">Catalog by Subject</h3>
+              <p className="text-xs text-[#7E6F64]">Titles per category</p>
             </div>
             <button
-              onClick={handleExportValuationCsv}
+              onClick={handleExportCatalogCsv}
               className="text-xs text-[#c62828] hover:text-[#a61f1f] font-semibold flex items-center gap-1"
             >
               <Download className="w-3.5 h-3.5" />
@@ -119,29 +92,20 @@ export const ReportsPage: React.FC = () => {
           </div>
 
           <div className="space-y-3">
-            {Object.entries(categoryValuationMap).map(([category, data]) => {
-              const totalVal = totalValuation || 1;
-              const percent = Math.round((data.totalCost / totalVal) * 100);
-              return (
-                <div key={category} className="space-y-1">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-semibold text-[#2C221E]">{category}</span>
-                    <span className="font-mono text-[#5A4D44] tabular-nums">
-                      {currency} {data.totalCost.toFixed(2)} ({data.count} copies)
-                    </span>
-                  </div>
-                  <div className="w-full h-2 rounded-full bg-[#FAF8F5] overflow-hidden border border-[#E8E2D9]">
-                    <div
-                      style={{ width: `${percent}%` }}
-                      className="h-full bg-[#c62828] rounded-full"
-                    />
-                  </div>
+            {loading ? (
+              <p className="text-xs text-[#7E6F64]">Loading...</p>
+            ) : Object.entries(categoryCounts).length === 0 ? (
+              <p className="text-xs text-[#7E6F64]">No titles cataloged yet.</p>
+            ) : (
+              Object.entries(categoryCounts).map(([category, count]) => (
+                <div key={category} className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-[#2C221E]">{category}</span>
+                  <span className="font-mono text-[#5A4D44] tabular-nums">{count} titles</span>
                 </div>
-              );
-            })}
+              ))
+            )}
           </div>
         </div>
-
       </div>
     </div>
   );

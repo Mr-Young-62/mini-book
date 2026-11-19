@@ -86,14 +86,12 @@ mini-book/
 │   │   ├── DashboardPage.tsx     # Ringkasan + aksi cepat
 │   │   ├── BookshelfPage.tsx     # Katalog buku (786 baris, terbesar)
 │   │   ├── ScannerPage.tsx       # Scan/input ISBN + katalogisasi
-│   │   ├── MembersPage.tsx       # Manajemen anggota
-│   │   ├── ReportsPage.tsx       # Laporan (⚠ lihat temuan F-6)
-│   │   ├── InventoryPage.tsx     # Inventaris fisik
+│   │   ├── ReportsPage.tsx       # Laporan katalog (⚠ lihat temuan F-6)
 │   │   └── SettingsPage.tsx      # Konfigurasi Supabase + profil (306 baris) ← KANDIDAT UI UPDATER
 │   ├── services/
-│   │   ├── libraryService.ts     # Core domain: buku, copy, anggota, settings, log (727 baris)
+│   │   ├── libraryService.ts     # Core domain: buku (add/update/delete), settings, log
 │   │   ├── metadataService.ts    # Lookup metadata ISBN: Edge Function `book-metadata` saja (185 baris)
-│   │   ├── codeResolver.ts (+test) # Resolver kode inventaris
+│   │   ├── codeResolver.ts (+test) # Resolver ISBN/EAN (kode inventaris dihapus Tahap H)
 │   │   ├── isbnValidator.ts (+test)# Validasi ISBN-10/13
 │   │   └── digitalBookService.ts # ⚠ 0 BYTE
 │   └── types/
@@ -132,7 +130,9 @@ mini-book/
 │       ├── 20261105163600_rebrand_meeliefont.sql
 │       ├── 20261105170000_digital_books.sql       # ⚠ 0 BYTE, selalu 0 byte sejak dibuat
 │       └── 20261118000000..000400 (5 migrasi baru) # Belum di-push (db push DILARANG di tahap ini)
-│       └── 20261119000000_push_subscriptions.sql   # Web Push (Tahap G) — file saja, belum dijalankan
+│       ├── 20261119000000_push_subscriptions.sql   # Web Push (Tahap G) — file saja, belum dijalankan
+│       └── 20261119000100_remove_physical_copies.sql # Tahap H: drop copy/circulation + add_book_atomic (destruktif)
+│       └── 20261119000200_remove_members.sql # Tahap I: drop patron records + enum (destruktif)
 │
 ├── src-tauri/                   # App desktop Tauri 2 (Tahap F — aktif)
 │   ├── tauri.conf.json          # versi + endpoint updater diinjeksi CI; pubkey minisign di-pin
@@ -154,7 +154,7 @@ mini-book/
 |---|---|
 | `main.tsx` | Entry point **web**: `createRoot(document.getElementById('root'))` → render `<App />`. |
 | `App.tsx` | Entry point **aplikasi** setelah mount: subscribe `onAuthStateChange`, ambil session, panggil RPC `current_user_role`, muat cloud settings, gate tab per role (`allowedTabs`), render `UpdateNotifications` di **semua** cabang render (termasuk saat loading/auth), routing tab → halaman. |
-| `MainLayout.tsx` | Shell UI: sidebar (dashboard, scanner, members, books, settings — difilter per role), header (tombol Scan ISBN + Sign out), drawer mobile. **Tidak ada item nav `reports`.** |
+| `MainLayout.tsx` | Shell UI: sidebar (dashboard, scanner, books, settings — difilter per role), header (tombol Scan ISBN + Sign out), drawer mobile. **Tidak ada item nav `reports`.** |
 | `LibraryService` (static) | Simpan/muat data via Supabase + fallback `localStorage` (prefix `readowl_*`), logging aktivitas, settings lokal. |
 | `supabase.ts` | Inisialisasi client dari env build-time atau override `localStorage`; **menolak** service-role key di browser; export `isSupabaseConfigured`. |
 | `metadataService.ts` | Satu-satunya sumber lookup ISBN: Edge Function `book-metadata` (server-side). Fetch langsung Open Library/Google Books sudah dihapus dari klien. |
@@ -264,7 +264,7 @@ mini-book/
 ### 4.5 Mekanisme komunikasi API
 
 1. **PostgREST** (`supabase.from(...).select/insert/update`) — data utama.
-2. **RPC** (`supabase.rpc('current_user_role' | 'add_book_with_copies_atomic' | ...)`) — operasi bertransaksi/role.
+2. **RPC** (`supabase.rpc('current_user_role' | 'add_book_atomic' | ...)`) — operasi bertransaksi/role.
 3. **Edge Function** (`metadataClient.functions.invoke('book-metadata')`).
 4. ~~Fetch langsung pihak ketiga~~ — **dihapus** (pipeline tunggal lewat Edge Function `book-metadata`).
 

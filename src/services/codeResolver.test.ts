@@ -9,10 +9,10 @@ describe('resolveScannedCode', () => {
     });
   });
 
-  it('recognizes an internal inventory code', () => {
+  it('rejects removed inventory codes as unknown', () => {
     expect(resolveScannedCode('RDW-000123')).toMatchObject({
-      kind: 'internal',
-      code: 'RDW-000123',
+      kind: 'unknown',
+      raw: 'RDW-000123',
     });
   });
 

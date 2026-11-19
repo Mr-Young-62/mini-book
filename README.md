@@ -1,7 +1,7 @@
 # MeelieFont — Digital Library Management System
 ### Supabase Edition · Web & Android (Capacitor)
 
-MeelieFont is a lightweight library management system for schools, community libraries, research labs, and personal collections. It scans ISBN barcodes with a device camera or webcam, fetches book metadata from public APIs, and tracks physical copies separately from bibliographic records.
+MeelieFont is a lightweight library management system for schools, community libraries, research labs, and personal collections. It scans ISBN barcodes with a device camera or webcam, fetches book metadata from public APIs, and manages a bibliographic catalog of titles.
 
 > Audit progress, verification results, and the deployment checklist are tracked in [PROGRESS.md](./PROGRESS.md).
 
@@ -15,22 +15,24 @@ mini-book/
 │   ├── components/
 │   │   └── scanner/         # ZXing camera scanner with targeting laser & beep
 │   ├── layouts/             # MainLayout with Top Bar Contract & Role switcher
-│   ├── pages/               # Dashboard, Bookshelf, Scanner, Inventory, Members, Reports, Settings
+│   ├── pages/               # Dashboard, Bookshelf, Scanner, Reports, Settings
 │   ├── services/
 │   │   ├── isbnValidator.ts  # ISBN-10/13 checksum algorithms & normalization
 │   │   ├── metadataService.ts# Metadata lookup via book-metadata Edge Function (single pipeline)
 │   │   └── libraryService.ts # Local fallback and Supabase-backed library workflows
 │   ├── lib/
 │   │   └── supabase.ts      # Supabase client and runtime configuration
-│   └── types/               # Bibliographic, physical copy, and member types
+│   └── types/               # Bibliographic types and app roles
 ├── supabase/
 │   ├── migrations/
 │   │   ├── 20261102000000_initial_schema.sql    # Normalized PostgreSQL schema & RLS
 │   │   ├── 20261102000001_functions.sql         # Historical procedures retained for migration history
 │   │   ├── 20261104000000_circulation_logic.sql # Historical catalog and circulation procedures
-│   │   └── 20261104190500_disable_circulation.sql # Disables circulation operations and preserves history
-│   ├── functions/
-│   │   └── book-metadata/   # Edge Function for server-side ISBN lookup
+│   │   ├── 20261104190500_disable_circulation.sql # Disables circulation operations and preserves history
+│   │   ├── 20261119000100_remove_physical_copies.sql # Drops copy/circulation data model, adds add_book_atomic RPC
+│   │   ├── 20261119000200_remove_members.sql # Drops patron records and membership enums
+│   │   └── 20261119000300_update_book_atomic.sql # Staff-only book edit RPC
+│   ├── functions/           # Edge Functions for ISBN metadata and Web Push release notices
 │   ├── seed.sql             # Development role and settings seeds
 │   └── config.toml          # Local Supabase CLI configuration
 ├── src-tauri/               # Desktop wrapper configuration (no package build script yet)
@@ -48,17 +50,14 @@ mini-book/
   - One-click test barcodes for instant testing without webcam hardware (development builds only).
   - Mathematical checksum verification for ISBN-10 and ISBN-13 (EAN-13).
   - Normalization of ISBN-10 to standard ISBN-13.
-- **Bibliographic vs. Physical Inventory Separation**:
-  - One bibliographic record (Title, ISBN, Author, Publisher) links to $N$ physical copies.
-  - Each copy has a unique inventory code (`RDW-000001`, `RDW-000002`, etc.), individual barcode, shelf location, rack number, and condition state.
-  - Removing a book that still has physical copies archives its catalog record instead of deleting the copies, preserving acquisition history.
+- **Bibliographic Catalog**:
+  - One record per title (ISBN, authors, publisher, subjects, cover, description), with date and time added shown in details.
+  - Staff can edit bibliographic fields from the book detail view; removing a title archives its catalog record, and archived titles can be restored.
 - **Digital Bookshelf Visualization**:
-  - Wooden bookshelf view with realistic 3D spines, covers, and availability ribbons.
-  - Modern grid view and dense tabular view.
-- **Patron Management**:
-  - Full patron records with digital library ID cards and printable badges.
+  - Wooden bookshelf view with realistic 3D spines and covers.
+  - Modern grid view and dense tabular catalog view.
 - **Reporting & Analytics**:
-  - Capital valuation report by category.
+  - Catalog summary by subject.
   - CSV export for spreadsheets and printable summary reports.
 - **Role-Based Access Control**:
   - Supabase sign-in and database role checks for Administrator, Librarian, and Member.
@@ -90,7 +89,7 @@ VITE_SUPABASE_URL="https://your-project-id.supabase.co"
 VITE_SUPABASE_PUBLISHABLE_KEY="sbp_your_publishable_key_here"
 ```
 
-Without Supabase credentials, the app uses browser `localStorage` with an empty library. In Supabase mode, catalog, members, copies, and settings read/write to the cloud; the app requires an authenticated account with a role assigned in `public.user_roles`. Borrowing and return workflows are disabled; existing circulation tables and records are retained as historical data.
+Without Supabase credentials, the app uses browser `localStorage` with an empty library. In Supabase mode, the catalog and settings read/write to the cloud; the app requires an authenticated account with a role assigned in `public.user_roles`. Physical copies, circulation records, and patron records have been removed from the data model (`20261119000100_remove_physical_copies.sql`, `20261119000200_remove_members.sql`). Each book keeps its `created_at` timestamp, shown with date and time in the catalog, book details, and scanner confirmation.
 
 ### Create a staff account
 After applying migrations, create or invite a user from **Supabase Dashboard → Authentication → Users**. Then assign a role using the user's Auth UUID:

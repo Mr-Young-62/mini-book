@@ -3,6 +3,7 @@ import { BookOpen, ArrowRight, QrCode, Plus, Sparkles, Search, Clock3, BookMarke
 import { LibraryService } from '../services/libraryService';
 import { ActivityLog, Book, UserRole } from '../types/library';
 import { formatIsbn } from '../services/isbnValidator';
+import { formatAddedAt } from '../lib/datetime';
 
 interface DashboardPageProps {
   userRole: UserRole;
@@ -15,7 +16,6 @@ interface ShelfBook {
   cover_url?: string;
   isbn_13?: string;
   id: string;
-  isAvailable: boolean;
 }
 
 const normalizeCoverUrl = (url?: string): string | undefined => {
@@ -72,7 +72,6 @@ const toShelfBook = (book: Book): ShelfBook => ({
   author: book.authors?.[0]?.name || 'Unknown Author',
   cover_url: book.cover_url,
   isbn_13: book.isbn_13,
-  isAvailable: (book.copies?.filter((copy) => copy.status === 'Available').length || 0) > 0,
 });
 
 const ShelfSection: React.FC<{ title: string; books: ShelfBook[]; actionLabel?: string; onAction?: () => void }> = ({
@@ -108,13 +107,10 @@ const ShelfSection: React.FC<{ title: string; books: ShelfBook[]; actionLabel?: 
                 {book.title}
               </div>
               <div className="relative w-[116px] overflow-hidden rounded-[10px_10px_12px_8px] border border-[#DCCDB9] bg-[#3E322B] shadow-[0_12px_18px_rgba(66,46,30,0.18)]">
-                <div className="relative aspect-[2/3] overflow-hidden">
-                  <BookCover coverUrl={book.cover_url} title={book.title} author={book.author} className="object-cover" />
-                  <div className="absolute inset-y-0 left-0 w-[8px] bg-black/10" />
-                  <span className={`absolute right-2 top-2 rounded-full px-1.5 py-0.5 text-[8px] font-semibold ${book.isAvailable ? 'bg-emerald-600/90 text-white' : 'bg-rose-700/90 text-white'}`}>
-                    {book.isAvailable ? 'Available' : 'Unavailable'}
-                  </span>
-                </div>
+                  <div className="relative aspect-[2/3] overflow-hidden">
+                    <BookCover coverUrl={book.cover_url} title={book.title} author={book.author} className="object-cover" />
+                    <div className="absolute inset-y-0 left-0 w-[8px] bg-black/10" />
+                  </div>
                 <div className="bg-[#F5EBDD] px-2 py-2 text-center">
                   <div className="line-clamp-2 text-[11px] font-bold text-[#2C221E]">{book.title}</div>
                   <div className="mt-1 text-[9px] text-[#7E6F64]">{book.author}</div>
@@ -160,21 +156,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     void loadDashboard();
   }, [userRole]);
 
-  const metrics = useMemo(() => {
-    const totalCopies = books.reduce((sum, book) => sum + (book.copies?.length || 0), 0);
-    const availableCopies = books.reduce((sum, book) => sum + (book.copies?.filter((copy) => copy.status === 'Available').length || 0), 0);
-    const maintenanceCopies = books.reduce(
-      (sum, book) => sum + (book.copies?.filter((copy) => copy.status === 'Maintenance' || copy.status === 'Damaged').length || 0),
-      0
-    );
-
-    return {
-      totalBooks: books.length,
-      totalCopies,
-      availableCopies,
-      maintenanceCopies,
-    };
-  }, [books]);
+  const metrics = useMemo(() => ({ totalBooks: books.length }), [books]);
 
   const recentlyAdded = useMemo(
     () => [...books]
@@ -194,9 +176,6 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
   const stats = [
     { label: 'Total titles', value: String(metrics.totalBooks), detail: 'cataloged books' },
-    { label: 'Total copies', value: String(metrics.totalCopies), detail: 'physical items' },
-    { label: 'Available', value: String(metrics.availableCopies), detail: 'ready on shelf' },
-    { label: 'Maintenance', value: String(metrics.maintenanceCopies), detail: 'copies needing attention' },
   ];
 
   return (
@@ -291,7 +270,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           </div>
 
           {loading ? (
-            <div className="rounded-xl bg-[#FAF8F5] p-4 text-sm text-[#7E6F64]">Loading recent acquisitions...</div>
+            <div className="rounded-xl bg-[#FAF8F5] p-4 text-sm text-[#7E6F64]">Loading recent books...</div>
           ) : recentlyAdded.length === 0 ? (
             <div className="rounded-xl border border-dashed border-[#DCCDB9] bg-[#FAF8F5] p-6 text-center text-sm text-[#7E6F64]">
               No books added yet. Start scanning a title to populate the collection.
@@ -299,8 +278,6 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           ) : (
             <div className="space-y-3">
               {recentlyAdded.map((book) => {
-                const copies = book.copies || [];
-                const availableCount = copies.filter((copy) => copy.status === 'Available').length;
                 return (
                   <div key={book.id} className="flex items-center gap-3 rounded-xl border border-[#E8E2D9] bg-[#FAF8F5] p-2.5">
                     <div className="h-20 w-14 shrink-0 overflow-hidden rounded-lg border border-[#E5E0D8] bg-[#F0ECE4]">
@@ -312,14 +289,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                           <h3 className="truncate text-sm font-bold text-[#2C221E]">{book.title}</h3>
                           <p className="truncate text-[11px] text-[#7E6F64]">{book.authors?.map((author) => author.name).join(', ') || 'Unknown Author'}</p>
                         </div>
-                        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${availableCount > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
-                          {availableCount > 0 ? 'Available' : 'Limited'}
-                        </span>
                       </div>
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-[#7E6F64]">
                         <span className="font-mono">{formatIsbn(book.isbn_13)}</span>
                         <span>•</span>
-                        <span>{new Date(book.created_at || Date.now()).toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                        <span>{formatAddedAt(book.created_at)}</span>
                       </div>
                     </div>
                   </div>

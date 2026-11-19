@@ -69,7 +69,7 @@ export function BarcodeScanner({ onDetected, onScan, onClose, active = true, isP
     }
 
     if (resolved.kind === 'unknown') {
-      setHint(`Kode berhasil dibaca: ${value}. Kode ini bukan ISBN maupun kode inventaris. Gunakan kode ini untuk pemeriksaan manual.`);
+      setHint(`Kode berhasil dibaca: ${value}. Kode ini bukan ISBN. Gunakan kode ini untuk pemeriksaan manual.`);
       onScan?.(value);
       onDetected?.(resolved);
       return true;

@@ -5,7 +5,6 @@ import {
   BookOpen,
   CheckCircle2,
   AlertCircle,
-  Layers,
   RefreshCw,
   Plus,
   BookMarked,
@@ -18,6 +17,7 @@ import { cleanIsbn, isValidIsbn, formatIsbn } from '../services/isbnValidator';
 import { LibraryService } from '../services/libraryService';
 import { ScannedBookMetadata, Book } from '../types/library';
 import type { ResolvedCode } from '../services/codeResolver';
+import { formatAddedAt } from '../lib/datetime';
 
 interface ScannerPageProps {
   onBookCataloged: (bookId: string) => void;
@@ -94,17 +94,7 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
   const [metadata, setMetadata] = useState<ScannedBookMetadata | null>(null);
   const [existingBook, setExistingBook] = useState<Book | null>(null);
 
-  // Physical inventory copy configuration
-  const [copyCount, setCopyCount] = useState<number>(1);
-  const [shelfLocation, setShelfLocation] = useState<string>('Shelf Tech A');
-  const [rackNumber, setRackNumber] = useState<string>('Rack 01');
-  const [condition, setCondition] = useState<string>('Good');
-  const [acquisitionPrice, setAcquisitionPrice] = useState<string>('24.95');
-  const [acquisitionSource, setAcquisitionSource] = useState<string>('Direct Purchase');
-
-  // Success state after saving
   const [savedBook, setSavedBook] = useState<Book | null>(null);
-  const [savedCopiesCount, setSavedCopiesCount] = useState<number>(0);
 
   // Quick test barcodes for instant evaluation without webcam
   const sampleIsbns = [
@@ -193,20 +183,6 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
       return;
     }
 
-    if (result.kind === 'internal') {
-      if (result.isbn13) {
-        setIsbnInput(result.isbn13);
-        await handleIsbnLookup(result.isbn13);
-        return;
-      }
-
-      setLookupStatus({
-        type: 'general',
-        message: `Kode inventaris ${result.code} terbaca. Coba cari data buku yang terkait atau masukkan ISBN manual.`,
-      });
-      return;
-    }
-
     if (result.kind === 'invalid_isbn') {
       setLookupStatus({
         type: 'invalid_isbn',
@@ -217,7 +193,7 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
 
     setLookupStatus({
       type: 'general',
-      message: `Kode berhasil dibaca: "${result.raw}". Kode ini bukan ISBN maupun kode inventaris yang dikenal. Anda dapat mencoba scan ulang, menggunakan kode ini, atau memasukkan data manual.`,
+      message: `Kode berhasil dibaca: "${result.raw}". Kode ini bukan ISBN yang dikenal. Anda dapat mencoba scan ulang atau memasukkan data manual.`,
     });
   };
 
@@ -227,17 +203,9 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
 
     setIsProcessing(true);
     try {
-      const result = await LibraryService.addBookWithCopies(metadata, {
-        copyCount,
-        shelfLocation,
-        rackNumber,
-        condition,
-        acquisitionPrice: parseFloat(acquisitionPrice) || 0,
-        acquisitionSource,
-      });
+      const result = await LibraryService.addBook(metadata);
 
       setSavedBook(result.book);
-      setSavedCopiesCount(result.newCopies.length);
       setMetadata(null);
       setExistingBook(null);
       setIsbnInput('');
@@ -300,7 +268,7 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                 Buku "{savedBook.title}" Berhasil Ditambahkan ke Katalog!
               </p>
               <p className="text-[11px] text-emerald-800">
-                Membuat {savedCopiesCount} kopi fisik dengan kode inventaris {LibraryService.getSettings().inventory_config.code_prefix} unik di {shelfLocation}.
+                Buku kini tersimpan di katalog · {formatAddedAt(savedBook.created_at)}.
               </p>
             </div>
           </div>
@@ -451,7 +419,7 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
           </div>
         </div>
 
-        {/* Right Column: Retrieved Metadata Review & Physical Copies Config (5 cols) */}
+        {/* Right Column: Retrieved Metadata Review (5 cols) */}
         <div className="lg:col-span-5">
           {metadata ? (
             <form
@@ -475,7 +443,7 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
               {existingBook && (
                 <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-900">
                   <strong>"{existingBook.title}"</strong> sudah ada di dalam katalog. Menyimpan akan
-                  menambahkan kopi fisik baru ke data buku ini.
+                  memperbarui data bibliografis buku ini.
                 </div>
               )}
 
@@ -616,100 +584,6 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                   placeholder="Contoh: en / id"
                   maxLength={10}
                 />
-              </div>
-
-              {/* Physical Inventory Copies Configuration Section */}
-              <div className="pt-3 border-t border-[#F0ECE4] space-y-3">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-[#2C221E]">
-                  <Layers className="w-3.5 h-3.5 text-[#c62828]" />
-                  <span>Kopi Inventaris Fisik</span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3 text-xs">
-                  <div>
-                    <label className="block text-[11px] font-medium text-[#5A4D44] mb-1">
-                      Jumlah Kopi
-                    </label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={20}
-                      value={copyCount}
-                      onChange={(e) => setCopyCount(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                      className="w-full px-2.5 py-1.5 bg-[#FAF8F5] border border-[#E5E0D8] rounded-md text-xs font-mono font-bold"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-medium text-[#5A4D44] mb-1">
-                      Kondisi Fisik
-                    </label>
-                    <select
-                      value={condition}
-                      onChange={(e) => setCondition(e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-[#FAF8F5] border border-[#E5E0D8] rounded-md text-xs"
-                    >
-                      <option>Like New</option>
-                      <option>Good</option>
-                      <option>Fair</option>
-                      <option>Worn</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3 text-xs">
-                  <div>
-                    <label className="block text-[11px] font-medium text-[#5A4D44] mb-1">
-                      Lokasi Rak
-                    </label>
-                    <input
-                      type="text"
-                      value={shelfLocation}
-                      onChange={(e) => setShelfLocation(e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-[#FAF8F5] border border-[#E5E0D8] rounded-md text-xs"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-medium text-[#5A4D44] mb-1">
-                      Nomor Baris / Rak
-                    </label>
-                    <input
-                      type="text"
-                      value={rackNumber}
-                      onChange={(e) => setRackNumber(e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-[#FAF8F5] border border-[#E5E0D8] rounded-md text-xs"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3 text-xs">
-                  <div>
-                    <label className="block text-[11px] font-medium text-[#5A4D44] mb-1">
-                      Harga Perolehan ({currency})
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={acquisitionPrice}
-                      onChange={(e) => setAcquisitionPrice(e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-[#FAF8F5] border border-[#E5E0D8] rounded-md text-xs font-mono"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-medium text-[#5A4D44] mb-1">
-                      Sumber Pengadaan
-                    </label>
-                    <input
-                      type="text"
-                      value={acquisitionSource}
-                      onChange={(e) => setAcquisitionSource(e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-[#FAF8F5] border border-[#E5E0D8] rounded-md text-xs"
-                    />
-                  </div>
-                </div>
               </div>
 
               {/* Form Action */}

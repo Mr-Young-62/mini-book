@@ -515,6 +515,26 @@ Beberapa identifier lama sengaja dipertahankan:
 - Verifikasi: tsc 0 · 38/38 test · build PASS · deno check PASS · diff-check 0.
 - **Tidak ada commit/push/deploy/migrasi berjalan.**
 
+### 19 November 2026 — Tahap H: hapus seluruh data model physical copy
+
+- Permintaan user: hapus fitur/menu "Physical Inventory" di detail buku → dikonfirmasi lanjut **hapus semua data model**.
+- Migrasi destruktif `20261119000100_remove_physical_copies.sql`: buat RPC `add_book_atomic` pengganti → drop `add_book_with_copies_atomic`, borrow/return functions, view `book_copies_public`, 5 tabel (copy/borrow/return/acquisition), enum, sequence, setting `inventory_config`+`circulation_rules`. Soft-delete buku & tabel `members` tetap.
+- Kode: hapus tipe `BookCopy`/`CopyStatus`/`Book.copies`/`inventory_config`; `addBookWithCopies` → `addBook` (RPC baru); hapus method copy; hilangkan copy hydration di getBooks/getBookByIsbn/getArchivedBooks; `deleteBook` selalu arsipkan.
+- UI: hapus `InventoryPage`, blok detail buku (sebelumnya), form copy ScannerPage + resolver kode inventaris; bersihkan filter/ribbon/metrik copy di Bookshelf/Dashboard; ReportsPage ditulis ulang jadi laporan katalog+anggota.
+- Test: asersi kode inventaris `codeResolver.test.ts` → `unknown`.
+- Docs: README + arsitektur disesuaikan (riwayat migrasi lama tetap tercatat sebagai histori).
+- Verifikasi: tsc 0 · 38/38 test · build PASS · diff-check 0.
+- **Tidak ada commit/push/migrasi dijalankan — migrate = penghapusan data permanen.**
+
+### 19 November 2026 — Tahap I: hapus member/patron + tanggal & jam buku
+
+- Permintaan user: hapus fitur, menu, dan DB member; tambahkan tanggal + jam saat buku ditambahkan.
+- `20261119000200_remove_members.sql`: drop tabel `public.members` + enum `membership_type_enum`/`member_status_enum`. **Peran aplikasi 'Member' (RBAC) tidak dihapus.**
+- Kode: hapus tipe `Member`/`MembershipType`/`MemberStatus`, `MembersPage`, nav/route `members`, 4 method member di `LibraryService`, KPI anggota di ReportsPage.
+- Tanggal/jam: helper `src/lib/datetime.ts` (`formatAddedAt`, `created_at` yang sudah ada). Dipakai di banner sukses Scanner, kolom "Ditambahkan" tabel Bookshelf, detail buku, dan daftar buku terbaru Dashboard. 2 test baru.
+- Verifikasi: tsc 0 · 40/40 test · build PASS · diff-check 0.
+- **Tidak ada commit/push/migrasi dijalankan.**
+
 ---
 
 ## 11. Tahap Persiapan Keamanan & Production — 18 November 2026
@@ -1599,3 +1619,112 @@ git commit -m "security: harden RLS, secrets, CSV, and soft delete"
 - Tanpa `fetch handler`, app tidak bisa dipakai offline (keputusan sadar — selalu versi terbaru).
 - App Store (APNs asli) tetap ditunda — butuh akun Apple Developer.
 - Belum ada commit/push/deploy nyata.
+
+---
+
+## 26. Hapus Seluruh Data Model Physical Copy — 19 November 2026
+
+> **Status: DONE (kode + migrasi file + docs) — belum commit, migrasi BELUM dijalankan.** Keputusan user: (1) hapus blok Physical Inventory di detail buku, (2) lanjut hapus **semua** data model physical copy. Migrasi bersifat **destruktif** — data copy/acquisition/circulation yang ada akan hilang saat diterapkan.
+
+### 26.1 Perubahan
+
+| # | Bagian | Detail |
+|---|---|---|
+| 1 | `20261119000100_remove_physical_copies.sql` | RPC pengganti `add_book_atomic` (logika bibliografis + soft-delete-safe upsert identik, tanpa parameter copy). Drop: 6 fungsi lama (`add_book_with_copies_atomic`, 2 signature `borrow_book_atomic`, `return_book_atomic`), view `book_copies_public`, tabel `book_returns`/`borrow_transaction_items`/`acquisition_records`/`borrow_transactions`/`book_copies`, enum `copy_status_enum`/`borrow_status_enum`, sequence `readowl_inventory_code_seq`, setting `inventory_config`+`circulation_rules`. |
+| 2 | `src/types/library.ts` | Hapus `CopyStatus`, `BookCopy`, `Book.copies`, `LibrarySettings.inventory_config`. |
+| 3 | `src/services/libraryService.ts` | `addBookWithCopies` → `addBook` (RPC `add_book_atomic`, return `{book}`); hapus `getCopies`/`getCopyByInventoryCode`/`updateCopyStatus`; hilangkan query `book_copies_public` di `getBooks`/`getBookByIsbn`/`getArchivedBooks`; `deleteBook` kini selalu arsipkan (soft-delete dipertahankan); settings hanya `library_info`. |
+| 4 | `codeResolver.ts` + `BarcodeScanner.tsx` + test | Hapus kind `internal`, pola `COPY_BARCODE`/`INVENTORY_CODE`, cabang URL inventory; test kode RDW kini diharapkan `unknown`. ISBN/EAN add-on tetap. |
+| 5 | Halaman | Hapus `InventoryPage.tsx` (orphan). `ScannerPage`: form copy + state + alur internal dihapus, pakai `addBook`. `BookshelfPage`: filter status, ribbon copy, kolom tabel, teks related-copy dihapus (blok detail dihapus lebih awal). `DashboardPage`: metrik copy/badge availability dihapus, sisa "Total titles". `ReportsPage`: ditulis ulang jadi laporan katalog menurut subject + jumlah anggota + CSV. |
+| 6 | `supabase/seed.sql` | Hapus seed `inventory_config`; deskripsi peran Librarian disesuaikan. |
+| 7 | Docs | README & arsitektur disesuaikan; migrasi lama tetap tercatat sebagai histori, bukan dihapus dari riwayat. |
+
+### 26.2 Verifikasi
+
+| Pemeriksaan | Hasil |
+|---|---|
+| `tsc --noEmit` | 0 — PASS |
+| `vitest run` | 38/38 — PASS |
+| `vite build` | PASS |
+| `git grep` referensi copy di `src/` | 0 (kecuali nama test yang mendokumentasikan penghapusan) — PASS |
+| `git diff --check` | 0 — PASS |
+
+### 26.3 Aksi user (berbahaya)
+
+1. **Backup database** sebelum `npx supabase db push` — migrasi menghapus semua baris copy/acquisition/circulation secara permanen.
+2. Pastikan aplikasi versi baru (tanpa query `book_copies_public`) di-deploy **bersamaan atau sebelum** migrasi — jika tidak, 3 method pembacaan buku akan error.
+3. Setelah migrasi: verifikasi RPC `add_book_atomic` bisa dipanggil oleh Administrator/Librarian, dan katalogisasi lewat Scanner berhasil.
+
+### 26.4 Batasan
+
+- Riwayat `activity_logs` lama (aksi `COPY_UPDATED`, `BORROW_*`, dll) **tidak dihapus** — hanya jejak historis, tidak bergantung pada tabel yang di-drop.
+- Soft-delete buku (Arsip/Pulihkan) tetap dipertahankan karena bukan bagian dari model copy.
+- `members` tetap saat Tahap H → **dihapus Tahap I (§27)** atas permintaan user berikutnya.
+- Belum ada commit/push; migrasi belum dijalankan ke Supabase lokal maupun remote.
+
+---
+
+## 27. Hapus Member/Patron + Tanggal & Jam Buku — 19 November 2026
+
+> **Status: DONE (kode + migrasi file + docs) — belum commit, migrasi BELUM dijalankan.** Dua permintaan user sekaligus: (1) hapus fitur/menu/DB member/patron, (2) tampilkan tanggal dan jam saat buku ditambahkan.
+
+### 27.1 Perubahan
+
+| # | Bagian | Detail |
+|---|---|---|
+| 1 | `20261119000200_remove_members.sql` | `DROP TABLE public.members` + enum `membership_type_enum`, `member_status_enum`. **Tidak menyentuh** Supabase Auth, `public.user_roles`, `has_role`, `current_user_role`, atau peran aplikasi `'Member'` — itu otorisasi, bukan patron. Semua tabel sirkulasi yang dulu mereferensikan members sudah dihapus Tahap H. |
+| 2 | `src/types/library.ts` | Hapus `Member`, `MembershipType`, `MemberStatus`; `UserRole` tetap. |
+| 3 | `src/services/libraryService.ts` | Hapus `getMembers`, `countMembers`, `addMember`, `updateMember`, konstanta storage & initial state terkait. |
+| 4 | UI | `MembersPage.tsx` dihapus; item nav `Members` (`MainLayout`), import/route `members` (`App`) dihapus; `ReportsPage` tanpa KPI anggota. Pemeriksaan `userRole === 'Member'` di Dashboard/Bookshelf/MainLayout **dipertahankan** (RBAC). |
+| 5 | Tanggal & jam | `src/lib/datetime.ts` → `formatAddedAt()` memformat `created_at` (sudah ada di DB/local state) menjadi tanggal + jam (`id-ID`). Dipakai di: banner sukses `ScannerPage`, kolom **Ditambahkan** tabel `BookshelfPage`, metadata detail buku, dan daftar buku terbaru `DashboardPage`. 2 test baru (`datetime.test.ts`). |
+| 6 | Docs | README/arsitektur disesuaikan; §26.4 diperbarui. |
+
+### 27.2 Verifikasi
+
+| Pemeriksaan | Hasil |
+|---|---|
+| `tsc --noEmit` | 0 — PASS |
+| `vitest run` | 40/40 — PASS |
+| `vite build` | PASS |
+| `rg member` di `src/` | hanya peran RBAC `'Member'` — PASS |
+| `git diff --check` | 0 — PASS |
+
+### 27.3 Aksi user
+
+- Backup DB sebelum `npx supabase db push` — migrasi menghapus semua data patron permanen.
+- Deploy client baru bersamaan dengan migrasi.
+- Tanggal/jam bersifat otomatis dari `created_at` saat katalogisasi; tidak ada input manual.
+
+### 27.4 Batasan
+
+- Riwayat log bertema `MEMBER_*` tidak dihapus (jejak historis, tidak bergantung tabel).
+- Belum ada commit/push; migrasi belum dijalankan.
+
+---
+
+## 28. Edit Buku di Bookshelf & Catalog — 19 November 2026
+
+> **Status: DONE (kode + RPC migration file + docs) — belum commit, migrasi BELUM dijalankan.**
+
+### 28.1 Perubahan
+
+| # | Bagian | Detail |
+|---|---|---|
+| 1 | `BookshelfPage.tsx` | Tombol **Edit Record** di modal detail (Administrator/Librarian; peran `Member` hanya baca). Form: judul, subjudul, penulis, penerbit, ISBN-10/13, tahun, halaman, bahasa, kategori, URL cover, deskripsi. Validasi ISBN + judul; mode simpan menampilkan status. |
+| 2 | `libraryService.ts` | `updateBook(book, metadata)` — RPC `update_book_atomic` di mode Supabase; patch `readowl_data_books` + rollback di mode lokal; log `BOOK_UPDATED` (lokal), RPC mencatat log (cloud). |
+| 3 | `20261119000300_update_book_atomic.sql` | RPC staff-only: validasi peran/ISBN/duplikat, update field buku + `metadata_source`, replace relasi penulis/kategori, tulis activity log. |
+| 4 | Docs | README feature + migration tree, arsitektur service. |
+
+### 28.2 Verifikasi
+
+| Pemeriksaan | Hasil |
+|---|---|
+| `tsc --noEmit` | 0 — PASS |
+| `vitest run` | 40/40 — PASS |
+| `vite build` | PASS |
+| `git diff --check` | 0 — PASS |
+
+### 28.3 Aksi user
+
+- Jalankan `npx supabase db push` **setelah** backup — migration H, I, dan 28.3 baru akan aktif bersamaan.
+- Deploy client baru di setelah migrasi RPC (edit gagal di cloud kalau RPC belum ada).
+- Edit tidak mengubah `created_at`; hanya `updated_at`.

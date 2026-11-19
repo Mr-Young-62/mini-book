@@ -1,7 +1,7 @@
 {
   "name": "MeelieFont — Digital Library",
   "short_name": "MeelieFont",
-  "description": "Digital library management with ISBN barcode scanning, a searchable catalog, and physical inventory management.",
+  "description": "Digital library management with ISBN barcode scanning and a searchable catalog.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

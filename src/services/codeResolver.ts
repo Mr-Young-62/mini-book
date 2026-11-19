@@ -9,12 +9,9 @@ import {
 
 export type ResolvedCode =
   | { kind: 'isbn'; isbn13: string; isbn10?: string; raw: string }
-  | { kind: 'internal'; code: string; isbn13?: string; raw: string }
   | { kind: 'invalid_isbn'; digits: string; raw: string }
   | { kind: 'unknown'; raw: string };
 
-const COPY_BARCODE = /^(97[89]\d{10})-(\d{1,6})$/;
-const INVENTORY_CODE = /^(?:RDW|INV|BOOK|BKS|COPY|LIB|ITEM)[-_ ]?\d{3,10}$/i;
 const LOOKS_LIKE_URL = /^(https?:\/\/|www\.)/i;
 const EAN_SUPPLEMENT = /^(97[89]\d{10})[-\s]?(\d{2}|\d{5})$/;
 
@@ -48,23 +45,10 @@ export function resolveScannedCode(rawInput: string): ResolvedCode {
     if (resolved) return resolved;
   }
 
-  const copy = raw.match(COPY_BARCODE);
-  if (copy) return { kind: 'internal', code: raw, isbn13: copy[1], raw };
-
   const isbnHit = extractIsbnCandidate(raw);
   if (isbnHit) {
     const resolved = asIsbn(isbnHit, raw);
     if (resolved) return resolved;
-  }
-
-  const normalizedRaw = raw.replace(/\s+/g, ' ').trim();
-  const inventoryMatch = normalizedRaw.match(/(?:^|[^A-Z0-9])((?:RDW|INV|BOOK|BKS|COPY|LIB|ITEM)[-_ ]?\d{3,10})(?!\d)/i);
-  if (inventoryMatch?.[1]) {
-    return { kind: 'internal', code: inventoryMatch[1].toUpperCase().replace(/[ _]/g, '-'), raw };
-  }
-
-  if (INVENTORY_CODE.test(normalizedRaw)) {
-    return { kind: 'internal', code: normalizedRaw.toUpperCase().replace(/[ _]/g, '-'), raw };
   }
 
   if (/^[0-9Xx\-\s]+$/.test(raw)) {
@@ -90,11 +74,6 @@ export function resolveScannedCode(rawInput: string): ResolvedCode {
     if (urlIsbn) {
       const resolved = asIsbn(urlIsbn, raw);
       if (resolved) return resolved;
-    }
-
-    const urlInventory = raw.match(/(?:[/?&]|^)(?:rdw|inv|book|copy|lib|item)[-_ ]?\d{3,10}/i);
-    if (urlInventory) {
-      return { kind: 'internal', code: urlInventory[0].toUpperCase().replace(/[ _]/g, '-'), raw };
     }
 
     return { kind: 'unknown', raw };

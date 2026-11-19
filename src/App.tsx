@@ -5,7 +5,6 @@ import { AuthPage } from './pages/AuthPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { BookshelfPage } from './pages/BookshelfPage';
 import { ScannerPage } from './pages/ScannerPage';
-import { MembersPage } from './pages/MembersPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { UserRole } from './types/library';
@@ -21,8 +20,8 @@ const isUserRole = (role: unknown): role is UserRole =>
   role === 'Administrator' || role === 'Librarian' || role === 'Member';
 
 const allowedTabs: Record<UserRole, string[]> = {
-  Administrator: ['dashboard', 'books', 'scanner', 'members', 'reports', 'settings'],
-  Librarian: ['dashboard', 'books', 'scanner', 'members', 'reports'],
+  Administrator: ['dashboard', 'books', 'scanner', 'reports', 'settings'],
+  Librarian: ['dashboard', 'books', 'scanner', 'reports'],
   Member: ['dashboard', 'books'],
 };
 
@@ -281,12 +280,6 @@ export default function App() {
           <ScannerPage
             onBookCataloged={handleBookCataloged}
             onNavigateToBookshelf={() => setCurrentTab('books')}
-          />
-        )}
-
-        {activeTab === 'members' && (
-          <MembersPage
-            userRole={activeRole}
           />
         )}
 
