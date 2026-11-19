@@ -12,6 +12,7 @@ import {
   Layers,
   RefreshCw,
   BellRing,
+  Users,
 } from 'lucide-react';
 import { LibraryService } from '../services/libraryService';
 import type { UpdaterApi } from '../hooks/useAppUpdater';
@@ -33,6 +34,23 @@ import {
   configureSupabase,
   resetSupabaseConfig,
 } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
+import { roleLabel } from '../lib/userRole';
+
+interface RoleAssignment {
+  user_id: string;
+  full_name: string;
+  email: string;
+  role_name: UserRole | null;
+}
+
+interface AccessRequest {
+  user_id: string;
+  full_name: string;
+  email: string;
+  requested_at: string;
+  status: string;
+}
 
 interface SettingsPageProps {
   userRole: UserRole;
@@ -55,7 +73,65 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [pushSubscribed, setPushSubscribed] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
   const [pushError, setPushError] = useState<string | null>(null);
+  const [roleAssignments, setRoleAssignments] = useState<RoleAssignment[]>([]);
+  const [accessRequests, setAccessRequests] = useState<AccessRequest[]>([]);
+  const [roleSelections, setRoleSelections] = useState<Record<string, UserRole>>({});
+  const [roleLoading, setRoleLoading] = useState(false);
+  const [roleBusyUserId, setRoleBusyUserId] = useState<string | null>(null);
+  const [roleError, setRoleError] = useState<string | null>(null);
+  const [roleNotice, setRoleNotice] = useState<string | null>(null);
   const iosBrowserHint = pushSupported && isIosDevice() && !isIosStandalone();
+  const canManageRoles = userRole === 'Owner' || userRole === 'Administrator';
+
+  const loadRoleManagement = async () => {
+    if (!supabase || !canManageRoles) return;
+    setRoleLoading(true);
+    setRoleError(null);
+    try {
+      const [assignmentsResult, requestsResult] = await Promise.all([
+        supabase.rpc('list_library_role_assignments'),
+        supabase.rpc('list_library_access_requests'),
+      ]);
+      if (assignmentsResult.error) throw assignmentsResult.error;
+      if (requestsResult.error) throw requestsResult.error;
+      setRoleAssignments((assignmentsResult.data || []) as RoleAssignment[]);
+      setAccessRequests((requestsResult.data || []) as AccessRequest[]);
+    } catch (error) {
+      setRoleError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRoleLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadRoleManagement();
+  }, [canManageRoles]);
+
+  const handleRoleChange = async (userId: string) => {
+    if (!supabase) return;
+    const role = roleSelections[userId] || roleAssignments.find((item) => item.user_id === userId)?.role_name;
+    if (!role) {
+      setRoleError('Pilih role sebelum menyimpan perubahan.');
+      return;
+    }
+    setRoleBusyUserId(userId);
+    setRoleError(null);
+    setRoleNotice(null);
+    try {
+      const { error } = await supabase.rpc('set_library_user_role', {
+        p_user_id: userId,
+        p_role_name: role,
+      });
+      if (error) throw error;
+      setRoleNotice(`Role ${roleLabel[role]} berhasil disimpan.`);
+      await loadRoleManagement();
+      onRefreshAppState();
+    } catch (error) {
+      setRoleError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRoleBusyUserId(null);
+    }
+  };
 
   useEffect(() => {
     if (!pushSupported) return;
@@ -196,6 +272,79 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
           <span>{errorMessage}</span>
         </div>
+      )}
+
+      {canManageRoles && (
+        <section className="space-y-4 rounded-xl border border-[#E8E2D9] bg-white p-5 shadow-2xs">
+          <div className="flex items-center gap-2 border-b border-[#F0ECE4] pb-3">
+            <Users className="h-4 w-4 text-[#c62828]" />
+            <div>
+              <h2 className="text-sm font-bold text-[#2C221E]">Manajemen Role & Permintaan Akses</h2>
+              <p className="text-[11px] text-[#7E6F64]">Role hanya dapat diubah melalui RPC yang memvalidasi kewenangan administrator.</p>
+            </div>
+          </div>
+
+          {roleError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900">{roleError}</p>}
+          {roleNotice && <p role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">{roleNotice}</p>}
+
+          {accessRequests.length > 0 && (
+            <div className="space-y-2">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-[#7E6F64]">Permintaan akses</h3>
+              {accessRequests.map((request) => (
+                <div key={request.user_id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#EAE5DE] bg-[#FAF8F5] p-3">
+                  <div>
+                    <p className="text-xs font-semibold text-[#2C221E]">{request.full_name}</p>
+                    <p className="text-[11px] text-[#7E6F64]">{request.email} · {new Date(request.requested_at).toLocaleString()}</p>
+                  </div>
+                  <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-semibold text-amber-900">{request.status}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <h3 className="text-xs font-bold uppercase tracking-wide text-[#7E6F64]">Akun dan role</h3>
+            {roleLoading ? (
+              <p className="text-xs text-[#7E6F64]">Memuat daftar akun...</p>
+            ) : roleAssignments.length === 0 ? (
+              <p className="text-xs text-[#7E6F64]">Belum ada profil pengguna.</p>
+            ) : roleAssignments.map((assignment) => {
+              const selectedRole = roleSelections[assignment.user_id] || assignment.role_name || 'Member';
+              return (
+                <div key={assignment.user_id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#EAE5DE] p-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-xs font-semibold text-[#2C221E]">{assignment.full_name}</p>
+                    <p className="truncate text-[11px] text-[#7E6F64]">{assignment.email}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <select
+                      aria-label={`Role ${assignment.email}`}
+                      value={selectedRole}
+                      onChange={(event) => setRoleSelections((current) => ({
+                        ...current,
+                        [assignment.user_id]: event.target.value as UserRole,
+                      }))}
+                      className="rounded-lg border border-[#D4CDC3] bg-white px-2 py-1.5 text-xs text-[#2C221E]"
+                    >
+                      {(['Member', 'Librarian', 'Administrator'] as UserRole[]).map((role) => (
+                        <option key={role} value={role}>{roleLabel[role]}</option>
+                      ))}
+                      {userRole === 'Owner' && <option value="Owner">{roleLabel.Owner}</option>}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => void handleRoleChange(assignment.user_id)}
+                      disabled={roleBusyUserId === assignment.user_id || selectedRole === assignment.role_name}
+                      className="rounded-lg bg-[#c62828] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#a61f1f] disabled:opacity-50"
+                    >
+                      {roleBusyUserId === assignment.user_id ? 'Menyimpan...' : 'Simpan'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
       )}
 
       <form onSubmit={handleSaveSettings} className="space-y-6">

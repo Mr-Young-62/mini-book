@@ -31,7 +31,11 @@ mini-book/
 │   │   ├── 20261104190500_disable_circulation.sql # Disables circulation operations and preserves history
 │   │   ├── 20261119000100_remove_physical_copies.sql # Drops copy/circulation data model, adds add_book_atomic RPC
 │   │   ├── 20261119000200_remove_members.sql # Drops patron records and membership enums
-│   │   └── 20261119000300_update_book_atomic.sql # Staff-only book edit RPC
+│   │   ├── 20261119000300_update_book_atomic.sql # Historical book edit RPC
+│   │   ├── 20261119000400_auth_registration.sql # Profile and Member role on signup
+│   │   ├── 20261119000500_profile_access_policies.sql # Own-profile/role RLS
+│   │   ├── 20261119000600_private_user_catalogs.sql # Per-user book ownership and RLS
+│   │   └── 20261119000700_auth_role_repair.sql # Role lookup repair, access requests, role management
 │   ├── functions/           # Edge Functions for ISBN metadata and Web Push release notices
 │   ├── seed.sql             # Development role and settings seeds
 │   └── config.toml          # Local Supabase CLI configuration
@@ -52,7 +56,7 @@ mini-book/
   - Normalization of ISBN-10 to standard ISBN-13.
 - **Bibliographic Catalog**:
   - One record per title (ISBN, authors, publisher, subjects, cover, description), with date and time added shown in details.
-  - Staff can edit bibliographic fields from the book detail view; removing a title archives its catalog record, and archived titles can be restored.
+  - Each account has a private book catalog; users can scan, edit, archive, and restore only their own titles.
 - **Digital Bookshelf Visualization**:
   - Wooden bookshelf view with realistic 3D spines and covers.
   - Modern grid view and dense tabular catalog view.
@@ -87,6 +91,7 @@ To use Supabase from the web app, add these values to a root `.env` file:
 ```env
 VITE_SUPABASE_URL="https://your-project-id.supabase.co"
 VITE_SUPABASE_PUBLISHABLE_KEY="sbp_your_publishable_key_here"
+VITE_AUTH_REDIRECT_URL="https://your-production-app.example"
 ```
 
 Without Supabase credentials, the app uses browser `localStorage` with an empty library. In Supabase mode, the catalog and settings read/write to the cloud; the app requires an authenticated account with a role assigned in `public.user_roles`. Physical copies, circulation records, and patron records have been removed from the data model (`20261119000100_remove_physical_copies.sql`, `20261119000200_remove_members.sql`). Each book keeps its `created_at` timestamp, shown with date and time in the catalog, book details, and scanner confirmation.
@@ -103,8 +108,33 @@ SELECT 'AUTH_USER_UUID', id FROM public.roles WHERE name = 'Administrator'
 ON CONFLICT (user_id, role_id) DO NOTHING;
 ```
 The user signs in to MeelieFont with that email and password. Never put a Supabase `service_role` key in the browser app.
-The role selector shown without Supabase is only a UI preview; cloud permissions come from the authenticated user's `public.user_roles` record and RLS.
-For a remote project, disable public email sign-ups in Supabase Auth; the app only provides staff sign-in.
+The role selector shown without Supabase is only a UI preview; cloud permissions come from the authenticated user's `public.user_roles` record and RLS. For hosted projects, public email sign-ups should remain disabled unless the temporary member registration flow below is intentionally enabled.
+
+### Email and Google authentication
+Apply migrations `20261119000400_auth_registration.sql`, `20261119000500_profile_access_policies.sql`, `20261119000600_private_user_catalogs.sql`, and `20261119000700_auth_role_repair.sql` to the hosted project. Email/password registration uses Supabase `signUp`; confirmation mail is sent by Supabase Auth through the SMTP provider configured in **Supabase Dashboard → Authentication → SMTP Settings**. For Resend, use the Resend SMTP host and credentials and a sender address on a domain verified for that Resend key. The browser app does not call the Resend API directly and must not be given a Resend API key. Keep **Confirm email** enabled under **Authentication → Providers → Email**. Registration creates the profile and least-privileged `Member` role in a database trigger; client metadata cannot assign staff access.
+
+The sign-in screen also supports Google OAuth. Enable Google under **Authentication → Providers → Google** and configure its client ID and secret. In Google Cloud Console, allow the Supabase callback URL `https://<project-ref>.supabase.co/auth/v1/callback`; in Supabase **Authentication → URL Configuration → Redirect URLs**, allow the exact app origins for local development and production. Set `VITE_AUTH_REDIRECT_URL` to the production app origin in the hosting provider's build environment. If omitted, the current page origin is used. Google sign-in creates a Supabase session directly and does not request an additional email verification code.
+
+Roles use the existing `public.roles` and `public.user_roles` tables: `Owner` (Super Admin / Owner), `Administrator` (Admin Perpustakaan), `Librarian` (Petugas), and `Member` (Anggota). New accounts receive only `Member`; no migration assigns `Owner` automatically. The `current_user_role()` RPC uses `auth.uid()`, returns `NULL` when no role is assigned, and is granted to authenticated users only. The role-repair migration asks PostgREST to reload its schema cache. If a signed-in account has no role, it remains outside role-protected pages and can submit an access request; administrators can review requests and manage roles in Settings. Only an existing Owner can grant or change Owner access; an administrator cannot promote users to Owner.
+
+To establish the first Owner, a trusted project operator must explicitly promote the intended, verified account once in the Supabase SQL Editor after applying migrations. Replace the UUID with that account's Auth user ID:
+```sql
+INSERT INTO public.user_roles (user_id, role_id)
+SELECT 'AUTH_USER_UUID', id FROM public.roles WHERE name = 'Owner'
+ON CONFLICT (user_id, role_id) DO NOTHING;
+```
+This is intentionally not performed by signup or migration. After the first Owner is established, role changes should go through the Settings role manager.
+
+The profile and role-assignment RLS policies allow authenticated users to read their own profile and role only; profile updates are limited to name, phone, and avatar. The book catalog is private by `owner_id`; row access and the atomic add/edit RPCs enforce ownership in the database, not just in the UI. Each signed-in user can scan and manage their own books. Existing catalog rows are assigned to the earliest Administrator role assignment when the private-catalog migration runs; other users' catalogs start empty. If existing rows are present but no Administrator role assignment exists, the migration stops and requires one to be created before retrying. Email verification delivery, SMTP credentials, OAuth secrets, and hosted redirect allowlists are Supabase/provider settings and must be configured outside this repository.
+
+The email sender address and Resend SMTP API key are configured only in **Supabase Dashboard → Authentication → SMTP Settings**; they are not set in frontend code. The sender domain must be verified in Resend and authorized for that API key. Use the same verified domain for the Supabase sender address (for example, `noreply@kiluadev.my.id` only if `kiluadev.my.id` is verified and authorized).
+
+### Authentication and ownership smoke test
+1. With **Confirm email** enabled, register using a new email address. Confirm the success message names that same address, then inspect the Resend request log's `to` field. Try logging in before clicking the confirmation link and verify the app reports that the email is not verified.
+2. Click the confirmation link, sign in with that email/password, and verify the app displays **Login berhasil** and opens the account's own bookshelf.
+3. Use a separate Google test account and choose **Lanjutkan dengan Google**. Confirm that the Supabase callback returns to the app with a session and that no extra email-verification-code prompt appears.
+4. Sign in as two different users. Add a book to the first user's catalog, sign out, then verify the second user's bookshelf and archived list do not show it. Add the same ISBN to the second account to verify ISBN uniqueness is per user.
+5. In Settings as an administrator, inspect the account list and pending access requests. Assign a test account a role, verify its access updates after reload, and confirm a non-Owner cannot assign the Owner role.
 
 ---
 

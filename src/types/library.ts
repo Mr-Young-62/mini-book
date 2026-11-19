@@ -1,4 +1,4 @@
-export type UserRole = 'Administrator' | 'Librarian' | 'Member';
+export type UserRole = 'Owner' | 'Administrator' | 'Librarian' | 'Member';
 
 export interface Author {
   id: string;
@@ -18,6 +18,7 @@ export interface Category {
 
 export interface Book {
   id: string;
+  owner_id?: string;
   isbn_10?: string;
   isbn_13: string;
   title: string;

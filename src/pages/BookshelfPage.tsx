@@ -13,7 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import { LibraryService } from '../services/libraryService';
-import { Book, ScannedBookMetadata, UserRole } from '../types/library';
+import { Book, ScannedBookMetadata } from '../types/library';
 import { formatIsbn, isValidIsbn, normalizeToIsbn13 } from '../services/isbnValidator';
 import { formatAddedAt } from '../lib/datetime';
 
@@ -187,12 +187,10 @@ const EditBookForm: React.FC<EditBookFormProps> = ({ book, onSave }) => {
 };
 
 interface BookshelfPageProps {
-  userRole: UserRole;
   onNavigateToScanner: () => void;
 }
 
 export const BookshelfPage: React.FC<BookshelfPageProps> = ({
-  userRole,
   onNavigateToScanner,
 }) => {
   const currency = LibraryService.getSettings().library_info.currency || 'IDR';
@@ -366,29 +364,25 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
             </button>
           </div>
 
-          {userRole !== 'Member' && (
-            <button
-              onClick={toggleArchived}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#F0ECE4] hover:bg-[#E5E0D8] text-[#2C221E] text-xs font-semibold rounded-lg shadow-2xs transition-colors whitespace-nowrap"
-            >
-              <Archive className="w-3.5 h-3.5" />
-              <span>Arsip</span>
-            </button>
-          )}
+          <button
+            onClick={toggleArchived}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#F0ECE4] hover:bg-[#E5E0D8] text-[#2C221E] text-xs font-semibold rounded-lg shadow-2xs transition-colors whitespace-nowrap"
+          >
+            <Archive className="w-3.5 h-3.5" />
+            <span>Arsip</span>
+          </button>
 
-          {userRole !== 'Member' && (
-            <button
-              onClick={onNavigateToScanner}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#c62828] hover:bg-[#a61f1f] text-white text-xs font-semibold rounded-lg shadow-2xs transition-colors whitespace-nowrap"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Catalog New Book</span>
-            </button>
-          )}
+          <button
+            onClick={onNavigateToScanner}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#c62828] hover:bg-[#a61f1f] text-white text-xs font-semibold rounded-lg shadow-2xs transition-colors whitespace-nowrap"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Catalog New Book</span>
+          </button>
         </div>
       </div>
 
-      {showArchived && userRole !== 'Member' && (
+      {showArchived && (
         <div className="bg-white border border-[#E8E2D9] rounded-xl p-4 shadow-2xs">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
@@ -779,24 +773,20 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
               ) : (
                 <>
                   <div className="flex items-center gap-3">
-                    {userRole === 'Administrator' && (
-                      <button
-                        onClick={() => handleDeleteBook(activeBook.id)}
-                        className="inline-flex items-center gap-1 text-xs text-rose-600 hover:text-rose-800 font-semibold"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        <span>Delete Record</span>
-                      </button>
-                    )}
-                    {userRole !== 'Member' && (
-                      <button
-                        onClick={() => setEditingBook(true)}
-                        className="inline-flex items-center gap-1 text-xs text-[#2C221E] hover:text-[#c62828] font-semibold"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                        <span>Edit Record</span>
-                      </button>
-                    )}
+                    <button
+                      onClick={() => handleDeleteBook(activeBook.id)}
+                      className="inline-flex items-center gap-1 text-xs text-rose-600 hover:text-rose-800 font-semibold"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Archive Record</span>
+                    </button>
+                    <button
+                      onClick={() => setEditingBook(true)}
+                      className="inline-flex items-center gap-1 text-xs text-[#2C221E] hover:text-[#c62828] font-semibold"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      <span>Edit Record</span>
+                    </button>
                   </div>
 
                   <button

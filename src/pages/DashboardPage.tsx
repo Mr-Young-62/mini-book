@@ -196,15 +196,13 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {userRole !== 'Member' && (
-              <button
-                onClick={() => onNavigate('scanner')}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#c62828] px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#a61f1f]"
-              >
-                <QrCode className="w-4 h-4" />
-                Scan ISBN
-              </button>
-            )}
+            <button
+              onClick={() => onNavigate('scanner')}
+              className="inline-flex items-center gap-2 rounded-xl bg-[#c62828] px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#a61f1f]"
+            >
+              <QrCode className="w-4 h-4" />
+              Scan ISBN
+            </button>
             <button
               onClick={() => onNavigate('books')}
               className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/5 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/10"

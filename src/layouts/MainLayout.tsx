@@ -32,10 +32,10 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: BarChart3, roles: ['Administrator', 'Librarian', 'Member'] },
-    { id: 'scanner', label: 'ISBN Scanner', icon: QrCode, roles: ['Administrator', 'Librarian'] },
-    { id: 'books', label: 'Book Shelf', icon: Library, roles: ['Administrator', 'Librarian', 'Member'] },
-    { id: 'settings', label: 'Settings', icon: SettingsIcon, roles: ['Administrator'] },
+    { id: 'dashboard', label: 'Dashboard', icon: BarChart3, roles: ['Owner', 'Administrator', 'Librarian', 'Member'] },
+    { id: 'scanner', label: 'ISBN Scanner', icon: QrCode, roles: ['Owner', 'Administrator', 'Librarian', 'Member'] },
+    { id: 'books', label: 'Book Shelf', icon: Library, roles: ['Owner', 'Administrator', 'Librarian', 'Member'] },
+    { id: 'settings', label: 'Settings', icon: SettingsIcon, roles: ['Owner', 'Administrator'] },
   ];
 
   const visibleNav = navItems.filter((item) => item.roles.includes(userRole));
@@ -79,12 +79,10 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
       <div className="main-panel">
         <header className="main-header">
           <div className="header-actions">
-            {userRole !== 'Member' && (
-              <button type="button" className="scan-button" onClick={onOpenQuickScan}>
-                <QrCode className="w-4 h-4" />
-                <span>Scan ISBN</span>
-              </button>
-            )}
+            <button type="button" className="scan-button" onClick={onOpenQuickScan}>
+              <QrCode className="w-4 h-4" />
+              <span>Scan ISBN</span>
+            </button>
             {cloudMode && onSignOut && (
               <button type="button" className="scan-button" onClick={onSignOut}>Sign out</button>
             )}

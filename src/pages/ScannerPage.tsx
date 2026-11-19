@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Search,
   Sparkles,
@@ -10,6 +10,7 @@ import {
   BookMarked,
   Info,
   WifiOff,
+  ImagePlus,
 } from 'lucide-react';
 import { BarcodeScanner } from '../components/scanner/BarcodeScanner';
 import { fetchBookMetadataByIsbn, MetadataErrorType } from '../services/metadataService';
@@ -80,6 +81,50 @@ const BookCoverPreview: React.FC<{
   );
 };
 
+async function prepareBookCover(file: File): Promise<string> {
+  if (!file.type.startsWith('image/')) {
+    throw new Error('Pilih file gambar untuk cover buku.');
+  }
+  if (file.size > 12 * 1024 * 1024) {
+    throw new Error('Ukuran foto maksimal 12 MB.');
+  }
+
+  const imageUrl = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    image.src = imageUrl;
+    await image.decode();
+
+    const maxDimension = 1200;
+    const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Foto tidak dapat diproses di perangkat ini.');
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+    const compressed = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (blob) => blob ? resolve(blob) : reject(new Error('Foto gagal dikompres.')),
+        'image/jpeg',
+        0.82,
+      );
+    });
+
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => typeof reader.result === 'string'
+        ? resolve(reader.result)
+        : reject(new Error('Foto gagal dibaca.'));
+      reader.onerror = () => reject(new Error('Foto gagal dibaca.'));
+      reader.readAsDataURL(compressed);
+    });
+  } finally {
+    URL.revokeObjectURL(imageUrl);
+  }
+}
+
 export const ScannerPage: React.FC<ScannerPageProps> = ({
   onBookCataloged,
   onNavigateToBookshelf,
@@ -93,6 +138,8 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
   } | null>(null);
   const [metadata, setMetadata] = useState<ScannedBookMetadata | null>(null);
   const [existingBook, setExistingBook] = useState<Book | null>(null);
+  const [coverError, setCoverError] = useState('');
+  const coverInputRef = useRef<HTMLInputElement>(null);
 
   const [savedBook, setSavedBook] = useState<Book | null>(null);
 
@@ -195,6 +242,19 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
       type: 'general',
       message: `Kode berhasil dibaca: "${result.raw}". Kode ini bukan ISBN yang dikenal. Anda dapat mencoba scan ulang atau memasukkan data manual.`,
     });
+  };
+
+  const handleCoverSelection = async (file?: File) => {
+    if (!file || !metadata) return;
+    setCoverError('');
+    try {
+      const coverUrl = await prepareBookCover(file);
+      setMetadata((current) => current
+        ? { ...current, coverUrl, alternateCoverUrl: undefined }
+        : current);
+    } catch (error) {
+      setCoverError(error instanceof Error ? error.message : 'Foto cover gagal diproses.');
+    }
   };
 
   const handleSaveBook = async (e: React.FormEvent) => {
@@ -449,12 +509,38 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
 
               {/* Book Overview Preview with Fallback Component (BUG-06 Fix) */}
               <div className="flex gap-4">
-                <BookCoverPreview
-                  coverUrl={metadata.coverUrl}
-                  alternateCoverUrl={metadata.alternateCoverUrl}
-                  title={metadata.title}
-                  category={metadata.categories[0]}
-                />
+                <div className="w-20 shrink-0 space-y-2">
+                  <input
+                    ref={coverInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(event) => {
+                      void handleCoverSelection(event.target.files?.[0]);
+                      event.target.value = '';
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => coverInputRef.current?.click()}
+                    className="group relative block w-20 aspect-2/3 overflow-hidden rounded-lg text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#c62828]"
+                    aria-label={metadata.coverUrl ? 'Ganti foto cover buku' : 'Unggah foto cover buku'}
+                  >
+                    <BookCoverPreview
+                      coverUrl={metadata.coverUrl}
+                      alternateCoverUrl={metadata.alternateCoverUrl}
+                      title={metadata.title}
+                      category={metadata.categories[0]}
+                    />
+                    <span className="absolute inset-x-1 bottom-1 inline-flex items-center justify-center gap-1 rounded bg-black/60 px-1 py-1 text-[8px] font-semibold text-white">
+                      <ImagePlus className="h-3 w-3" />
+                      <span>{metadata.coverUrl ? 'Ganti foto' : 'Tambah foto'}</span>
+                    </span>
+                  </button>
+                  {coverError && (
+                    <p className="text-[10px] leading-tight text-rose-700" role="alert">{coverError}</p>
+                  )}
+                </div>
 
                 <div className="flex-1 min-w-0 space-y-1">
                   <input

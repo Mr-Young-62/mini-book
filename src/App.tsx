@@ -8,6 +8,7 @@ import { ScannerPage } from './pages/ScannerPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { UserRole } from './types/library';
+import { normalizeUserRole } from './lib/userRole';
 import { UpdateNotifications } from './components/UpdateNotifications';
 import { UpdateBanner } from './components/updater/UpdateBanner';
 import { UpdateDialog } from './components/updater/UpdateDialog';
@@ -16,13 +17,11 @@ import { useAppUpdater } from './hooks/useAppUpdater';
 import { isSupabaseConfigured, resetSupabaseConfig, supabase } from './lib/supabase';
 import { LibraryService } from './services/libraryService';
 
-const isUserRole = (role: unknown): role is UserRole =>
-  role === 'Administrator' || role === 'Librarian' || role === 'Member';
-
 const allowedTabs: Record<UserRole, string[]> = {
+  Owner: ['dashboard', 'books', 'scanner', 'reports', 'settings'],
   Administrator: ['dashboard', 'books', 'scanner', 'reports', 'settings'],
   Librarian: ['dashboard', 'books', 'scanner', 'reports'],
-  Member: ['dashboard', 'books'],
+  Member: ['dashboard', 'books', 'scanner'],
 };
 
 export default function App() {
@@ -34,6 +33,10 @@ export default function App() {
   const [roleLoading, setRoleLoading] = useState(isSupabaseConfigured);
   const [cloudRole, setCloudRole] = useState<UserRole | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
+  const [accessRequestBusy, setAccessRequestBusy] = useState(false);
+  const [accessRequestNotice, setAccessRequestNotice] = useState<string | null>(null);
+  const [accessRequestError, setAccessRequestError] = useState<string | null>(null);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const updater = useAppUpdater();
   const updateManifest = updater.status === 'available' && !updater.dismissed ? updater.manifest : null;
@@ -117,15 +120,21 @@ export default function App() {
     setAuthLoading(true);
     setAuthError(null);
     const client = supabase;
-    const { data: { subscription } } = client.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: { subscription } } = client.auth.onAuthStateChange((event, nextSession) => {
       if (!active) return;
       setSession(nextSession);
       setAuthError(null);
+      if (event === 'SIGNED_IN') setAuthNotice('Login berhasil.');
+      if (event === 'SIGNED_OUT') setAuthNotice(null);
     });
 
     client.auth.getSession().then(({ data, error }) => {
       if (!active) return;
       if (error) setAuthError(error.message);
+      const callbackParams = new URLSearchParams(window.location.search);
+      const callbackHash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+      const callbackError = callbackParams.get('error_description') || callbackHash.get('error_description');
+      if (callbackError) setAuthError(`Login Google gagal: ${callbackError}`);
       setSession(data.session);
       setAuthLoading(false);
     }).catch((error: unknown) => {
@@ -141,6 +150,12 @@ export default function App() {
   }, [appRefreshKey]);
 
   useEffect(() => {
+    if (!authNotice) return;
+    const timeout = window.setTimeout(() => setAuthNotice(null), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [authNotice]);
+
+  useEffect(() => {
     if (!isSupabaseConfigured || !session) {
       setCloudRole(null);
       setRoleLoading(false);
@@ -153,13 +168,13 @@ export default function App() {
     Promise.resolve(supabase.rpc('current_user_role')).then(async ({ data, error }) => {
       if (!active) return;
       if (error) {
-        setAuthError(error.message);
+        setAuthError(`Tidak dapat memeriksa role akun: ${error.message}`);
         setCloudRole(null);
-      } else if (isUserRole(data)) {
+      } else if (normalizeUserRole(data)) {
         try {
           await LibraryService.loadCloudSettings();
           if (!active) return;
-          setCloudRole(data);
+          setCloudRole(normalizeUserRole(data));
           setAuthError(null);
         } catch (settingsError) {
           setCloudRole(null);
@@ -167,7 +182,7 @@ export default function App() {
         }
       } else {
         setCloudRole(null);
-        setAuthError('No valid library role is assigned to this account.');
+        setAuthError('Akun berhasil masuk, tetapi belum memiliki role perpustakaan.');
       }
       setRoleLoading(false);
     }).catch((error: unknown) => {
@@ -180,7 +195,7 @@ export default function App() {
     return () => {
       active = false;
     };
-  }, [session]);
+  }, [session, appRefreshKey]);
 
   useEffect(() => {
     if (isSupabaseConfigured && cloudRole && !allowedTabs[cloudRole].includes(currentTab)) {
@@ -206,6 +221,22 @@ export default function App() {
     if (window.confirm("Disconnect from Supabase and use this device's local library data?")) {
       resetSupabaseConfig();
       handleRefreshApp();
+    }
+  };
+
+  const handleRequestAccess = async () => {
+    if (!supabase) return;
+    setAccessRequestBusy(true);
+    setAccessRequestError(null);
+    setAccessRequestNotice(null);
+    try {
+      const { error } = await supabase.rpc('request_library_access');
+      if (error) throw error;
+      setAccessRequestNotice('Permintaan akses terkirim. Administrator perpustakaan akan meninjau akun Anda.');
+    } catch (requestError) {
+      setAccessRequestError(requestError instanceof Error ? requestError.message : String(requestError));
+    } finally {
+      setAccessRequestBusy(false);
     }
   };
 
@@ -237,6 +268,11 @@ export default function App() {
             supabase={supabase}
             message={authError}
             onSignOut={session ? handleSignOut : undefined}
+            canRequestAccess={Boolean(session && authError?.includes('belum memiliki role'))}
+            onRequestAccess={handleRequestAccess}
+            requestAccessBusy={accessRequestBusy}
+            requestAccessNotice={accessRequestNotice}
+            requestAccessError={accessRequestError}
             onUseLocalMode={handleUseLocalMode}
           />
         </>
@@ -253,6 +289,14 @@ export default function App() {
     <>
       <UpdateNotifications onUpdateSignal={updater.notifyFromPush} />
       {updaterUi}
+      {authNotice && (
+        <div
+          role="status"
+          className="fixed right-4 top-4 z-[100] rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-900 shadow-lg"
+        >
+          {authNotice}
+        </div>
+      )}
       <MainLayout
         key={appRefreshKey}
         currentTab={activeTab}
@@ -271,7 +315,6 @@ export default function App() {
 
         {activeTab === 'books' && (
           <BookshelfPage
-            userRole={activeRole}
             onNavigateToScanner={() => setCurrentTab('scanner')}
           />
         )}
