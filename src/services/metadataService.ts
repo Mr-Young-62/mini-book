@@ -134,6 +134,17 @@ export async function fetchBookMetadataByIsbn(isbn: string): Promise<MetadataFet
     });
 
     if (error) {
+      // Check if edge function returned a "found: false" response (200 with found:false)
+      if (data && data.found === false) {
+        return {
+          success: false,
+          errorType: 'not_found',
+          error: `Buku dengan ISBN ${isbn13} tidak ditemukan di Open Library atau Google Books.`,
+          source: 'manual',
+          metadata: emptyMetadata(isbn10, isbn13),
+        };
+      }
+      // Fallback: classify based on error message for other errors
       const errorType = classifyEdgeError(error);
       return {
         success: false,

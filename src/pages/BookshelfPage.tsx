@@ -215,7 +215,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
   const loadBooks = async () => {
     setLoading(true);
     try {
-      const data = await LibraryService.getBooks();
+      const data = await LibraryService.getBooks({ limit: 20, skip: 0 });
       setBooks(data);
     } catch (err) {
       console.error('Error fetching books:', err);

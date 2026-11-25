@@ -34,12 +34,17 @@ port = 54325
 site_url = "http://localhost:3000"
 additional_redirect_urls = ["https://localhost:3000"]
 jwt_expiry = 3600
+minimum_password_length = 8
 enable_signup = true
 
 [auth.email]
 enable_signup = true
 enable_confirmations = true
 secure_password_change = true
+
+[functions]
+  send-update-push = { verify_jwt = false }
+  book-metadata = { verify_jwt = true }
 
 [storage]
 enabled = true

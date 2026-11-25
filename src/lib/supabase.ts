@@ -27,6 +27,7 @@ function isValidConfig(url: string, key: string): boolean {
 
 function isServiceRoleKey(key: string): boolean {
   if (/^sb_secret_/i.test(key)) return true;
+  if (/^sbp_/i.test(key)) return true;
   const parts = key.split('.');
   if (parts.length !== 3) return false;
   try {

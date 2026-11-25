@@ -18,7 +18,7 @@ export const ReportsPage: React.FC = () => {
   const loadReportsData = async () => {
     setLoading(true);
     try {
-      setBooks(await LibraryService.getBooks());
+      setBooks(await LibraryService.getBooks({ limit: 20, skip: 0 }));
     } catch (err) {
       console.error('Error loading reports data:', err);
     } finally {

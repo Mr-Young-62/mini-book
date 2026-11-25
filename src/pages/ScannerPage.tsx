@@ -403,10 +403,10 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
         <div className="lg:col-span-7 space-y-4">
           {/* Live Camera Scanner Component */}
           <BarcodeScanner
-            onDetected={async (result) => {
+            onDetected={async (result: ResolvedCode) => {
               await handleResolvedScan(result);
             }}
-            onScan={(scanned) => {
+            onScan={(scanned: string) => {
               setIsbnInput(scanned);
             }}
             isProcessing={isProcessing}

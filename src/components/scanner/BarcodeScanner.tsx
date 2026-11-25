@@ -2,15 +2,6 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { BarcodeFormat, BrowserMultiFormatReader, DecodeHintType } from '@zxing/library';
 import { resolveScannedCode, type ResolvedCode } from '../../services/codeResolver';
 
-interface Props {
-  onDetected?: (result: ResolvedCode) => void;
-  onScan?: (rawText: string) => void;
-  onClose?: () => void;
-  active?: boolean;
-  isProcessing?: boolean;
-  onResetScan?: () => void;
-}
-
 type Engine = 'native' | 'zxing';
 type ScanChoice = { rawValue: string; format: string; engine: Engine };
 type LastSeen = { text: string; count: number; at: number; firstSeen: number; format: string; engine: Engine };
@@ -30,6 +21,15 @@ function formatLabel(format: string) {
   return format.toUpperCase().replace(/_/g, ' ');
 }
 
+interface Props {
+  onDetected?: (result: ResolvedCode) => void;
+  onScan?: (rawText: string) => void;
+  onClose?: () => void;
+  active?: boolean;
+  isProcessing?: boolean;
+  onResetScan?: () => void;
+}
+
 export function BarcodeScanner({ onDetected, onScan, onClose, active = true, isProcessing = false, onResetScan }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const readerRef = useRef<BrowserMultiFormatReader | null>(null);
@@ -42,6 +42,8 @@ export function BarcodeScanner({ onDetected, onScan, onClose, active = true, isP
   const [rawValue, setRawValue] = useState('');
   const [detectedFormat, setDetectedFormat] = useState('');
   const [scanChoices, setScanChoices] = useState<ScanChoice[]>([]);
+
+  const emitRef = useRef<((raw: string, format?: string, engine?: Engine) => boolean) | null>(null);
 
   const resetScanState = useCallback(() => {
     doneRef.current = false;
@@ -81,7 +83,14 @@ export function BarcodeScanner({ onDetected, onScan, onClose, active = true, isP
     onDetected?.(resolved);
     if (onResetScan) onResetScan();
     return true;
-  }, [isProcessing, onDetected, onResetScan, onScan]);
+  }, [onDetected, onResetScan, onScan]);
+
+  emitRef.current = emit;
+
+  useEffect(() => {
+    if (!active) return;
+    resetScanState();
+  }, [active]);
 
   const handleDecoded = useCallback((text: string, format: string, engine: Engine) => {
     const value = text.trim();
@@ -94,8 +103,8 @@ export function BarcodeScanner({ onDetected, onScan, onClose, active = true, isP
       last.at = now;
       last.format = format;
       last.engine = engine;
-      if (last.count >= 2 && now - last.firstSeen <= 6000) {
-        emit(value, format, engine);
+      if (last.count >= 2 && now - last.firstSeen <= 6000 && emitRef.current) {
+        emitRef.current(value, format, engine);
       }
       return;
     }
@@ -105,16 +114,19 @@ export function BarcodeScanner({ onDetected, onScan, onClose, active = true, isP
       return;
     }
 
-    lastRef.current = { text: value, count: last.count + 1, at: now, firstSeen: last.firstSeen || now, format, engine };
-    if (lastRef.current.count >= 2 && now - lastRef.current.firstSeen <= 8000) {
-      emit(value, format, engine);
+lastRef.current = { text: value, count: 1, at: now, firstSeen: now, format, engine };
+    if (lastRef.current.count >= 2 && now - lastRef.current.firstSeen <= 8000 && emitRef.current) {
+      emitRef.current(value, format, engine);
     }
-  }, [emit, isProcessing]);
+  }, [isProcessing]);
 
   useEffect(() => {
     if (!active) return;
     resetScanState();
+  }, [active, handleDecoded]);
 
+  const nativeFrameRef = useRef(0);
+useEffect(() => {
     let cancelled = false;
     let stream: MediaStream | null = null;
     let rafId = 0;
@@ -137,16 +149,17 @@ export function BarcodeScanner({ onDetected, onScan, onClose, active = true, isP
       readerRef.current = zxingReader;
 
       try {
-        await zxingReader.decodeFromConstraints(
-          {
-            audio: false,
-            video: {
-              facingMode: { ideal: 'environment' },
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-              advanced: [{ focusMode: 'continuous' } as any, { zoom: 1.0 } as any],
-            },
+        const streamConstraints: MediaStreamConstraints = {
+          audio: false,
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            advanced: [{ focusMode: 'continuous' } as any, { zoom: 1.0 } as any],
           },
+        };
+        await zxingReader.decodeFromConstraints(
+          streamConstraints,
           video,
           (result) => {
             if (!result || cancelled || doneRef.current || isProcessing) return;
@@ -213,6 +226,11 @@ export function BarcodeScanner({ onDetected, onScan, onClose, active = true, isP
               const tick = async () => {
                 if (cancelled || doneRef.current || isProcessing) return;
                 try {
+                  nativeFrameRef.current++;
+                  if (nativeFrameRef.current % 3 !== 0) {
+                    rafId = requestAnimationFrame(tick);
+                    return;
+                  }
                   const codes = await detector.detect(video);
                   if (Array.isArray(codes) && codes.length > 0) {
                     const first = codes[0];
@@ -249,7 +267,7 @@ export function BarcodeScanner({ onDetected, onScan, onClose, active = true, isP
       cancelled = true;
       stopStream();
     };
-  }, [active, handleDecoded, isProcessing, resetScanState, torchOn]);
+  }, [active, handleDecoded, isProcessing, torchOn]);
 
   async function toggleTorch() {
     const video = videoRef.current;
@@ -305,8 +323,8 @@ export function BarcodeScanner({ onDetected, onScan, onClose, active = true, isP
         imageResults.push({ rawValue: result.getText(), format: result.getBarcodeFormat().toString(), engine: 'zxing' });
       }
 
-      if (imageResults.length === 1) {
-        emit(imageResults[0].rawValue, imageResults[0].format, imageResults[0].engine);
+      if (imageResults.length === 1 && emitRef.current) {
+        emitRef.current(imageResults[0].rawValue, imageResults[0].format, imageResults[0].engine);
         return;
       }
 
@@ -325,7 +343,9 @@ export function BarcodeScanner({ onDetected, onScan, onClose, active = true, isP
 
   const chooseImageResult = (choice: ScanChoice) => {
     setScanChoices([]);
-    emit(choice.rawValue, choice.format, choice.engine);
+    if (emitRef.current) {
+      emitRef.current(choice.rawValue, choice.format, choice.engine);
+    }
   };
 
   return (
@@ -379,7 +399,9 @@ export function BarcodeScanner({ onDetected, onScan, onClose, active = true, isP
         <input value={manual} onChange={(e) => setManual(e.target.value)} placeholder="Ketik ISBN / kode manual"
           className="flex-1 rounded-lg border px-3 py-2 text-sm" inputMode="text" />
         <button type="button" className="rounded-lg bg-black px-3 py-2 text-sm text-white"
-          onClick={() => { resetScanState(); emit(manual); }}>Cari</button>
+          onClick={() => { resetScanState(); if (emitRef.current) emitRef.current(manual); }}>
+          Cari
+        </button>
       </div>
     </div>
   );

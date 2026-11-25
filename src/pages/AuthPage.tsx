@@ -129,6 +129,24 @@ export const AuthPage: React.FC<AuthPageProps> = ({
     }
   };
 
+  const handleForgotPassword = async () => {
+    if (!supabase || !email.trim()) return;
+    setError(null);
+    setNotice(null);
+    try {
+      const redirectTo = resolveAuthRedirectUrl(
+        import.meta.env.VITE_AUTH_REDIRECT_URL,
+        window.location.origin,
+      );
+      await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+        redirectTo,
+      });
+      setNotice(`Email reset password dikirim ke ${email.trim().toLowerCase()}. Periksa inbox dan folder spam.`);
+    } catch (resetError) {
+      setError(getAuthErrorMessage(resetError, 'login'));
+    }
+  };
+
   const handleResendConfirmation = async () => {
     if (!supabase || !email.trim()) return;
     setError(null);
@@ -306,6 +324,15 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                 ? 'Akun baru hanya mendapat akses Member. Hak akses staf diberikan administrator.'
                 : 'Jika belum memiliki akun, Anda dapat mendaftar sementara.'}
             </p>
+            {mode === 'login' && (
+              <button
+                type="button"
+                onClick={() => void handleForgotPassword()}
+                className="w-full text-center text-xs font-semibold text-[#a61f1f] hover:underline disabled:opacity-50"
+              >
+                Lupa password?
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {

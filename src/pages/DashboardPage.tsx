@@ -139,7 +139,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       setLoading(true);
       try {
         const [libraryBooks, recentLogs] = await Promise.all([
-          LibraryService.getBooks(),
+          LibraryService.getBooks({ limit: 20, skip: 0 }),
           userRole === 'Member' ? Promise.resolve([]) : LibraryService.getLogs(),
         ]);
         setBooks(libraryBooks);
@@ -169,8 +169,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     const safeBooks = [...books].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
     return {
       currentlyReading: safeBooks.slice(0, 3).map(toShelfBook),
-      nextUp: safeBooks.slice(3, 7).map(toShelfBook),
-      finished: safeBooks.slice(7, 11).map(toShelfBook),
+      nextUp: safeBooks.slice(3).map(toShelfBook),
     };
   }, [books]);
 

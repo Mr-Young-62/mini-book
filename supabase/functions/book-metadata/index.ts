@@ -1,7 +1,6 @@
 // Supabase Edge Function: book-metadata
 // Server-side ISBN metadata lookup with public-catalog fallbacks.
 
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createRateLimiter, getRateLimitKey } from "./rateLimit.ts";
 
 const checkRateLimit = createRateLimiter({ windowMs: 60_000, max: 20 });
@@ -222,7 +221,8 @@ serve(async (req: Request) => {
     // 1. Try Open Library Books API
     try {
       const olUrl = `https://openlibrary.org/api/books?bibkeys=ISBN:${encodedIsbn}&format=json&jscmd=data`;
-      const olRes = await fetch(olUrl);
+      const olAbort = new AbortSignal.timeout(10000);
+      const olRes = await fetch(olUrl, { signal: olAbort });
       if (olRes.ok) {
         const olData = await olRes.json();
         const bookKey = `ISBN:${cleanIsbn}`;
@@ -234,7 +234,7 @@ serve(async (req: Request) => {
             : undefined;
 
           const verifiedCover = item.cover?.large || item.cover?.medium || item.cover?.small;
-          hasRealOlCover = Boolean(verifiedCover);
+          hasRealOlCover = item.cover !== false && Boolean(verifiedCover);
 
           olMetadata = {
             title: item.title,
@@ -290,7 +290,8 @@ serve(async (req: Request) => {
       const gbApiKey = Deno.env.get("GOOGLE_BOOKS_API_KEY");
       const apiKeyParam = gbApiKey ? `&key=${gbApiKey}` : "";
       const gbUrl = `https://www.googleapis.com/books/v1/volumes?q=isbn:${encodedIsbn}${apiKeyParam}`;
-      const gbRes = await fetch(gbUrl);
+      const gbAbort = new AbortSignal.timeout(10000);
+      const gbRes = await fetch(gbUrl, { signal: gbAbort });
 
       if (gbRes.ok) {
         const gbData = await gbRes.json();
@@ -403,14 +404,17 @@ serve(async (req: Request) => {
         message: "Book metadata not found in Open Library or Google Books.",
       }),
       {
-        status: 404,
+        status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       }
     );
   } catch (error: any) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ found: false, error: error.message }),
+      {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
+    );
   }
 });

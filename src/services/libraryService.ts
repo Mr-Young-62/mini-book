@@ -7,6 +7,8 @@ import {
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { isValidIsbn, normalizeToIsbn13 } from './isbnValidator';
 
+const COVER_BUCKET = 'book-covers';
+
 const STORAGE_KEY_BOOKS = 'readowl_data_books';
 const STORAGE_KEY_LOGS = 'readowl_data_logs';
 const STORAGE_KEY_SETTINGS = 'readowl_data_settings';
@@ -63,21 +65,22 @@ export class LibraryService {
   // Books & Bibliographic Data
   // --------------------------------------------------------------------------
 
-  static async getBooks(): Promise<Book[]> {
+static async getBooks({ limit: take = 50, skip = 0 } = {}): Promise<Book[]> {
     if (isSupabaseConfigured) {
       if (!supabase) throw new Error('Supabase is configured but the client could not be initialized.');
-      const { data, error } = await supabase
+      const { data, error: supabaseError } = await supabase
         .from('books')
         .select(`
           *,
           publisher:publishers(id, name),
           authors:book_authors(author:authors(id, name)),
           categories:book_categories(category:categories(id, name))
-        `)
+        `, { count: 'exact' })
         .is('deleted_at', null)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .range(skip, skip + take - 1);
 
-      if (error) throw error;
+      if (supabaseError) throw supabaseError;
 
       const books = data || [];
       return books.map((b: any) => ({
@@ -127,10 +130,33 @@ export class LibraryService {
     const isbn13 = normalizeToIsbn13(metadata.isbn13);
     if (!isValidIsbn(isbn13)) throw new Error('Book ISBN is invalid.');
     if (!metadata.title.trim()) throw new Error('Book title is required.');
+    let coverPath: string | undefined;
     const normalizedCover = normalizeCoverUrl(metadata.coverUrl);
 
     if (isSupabaseConfigured) {
       if (!supabase) throw new Error('Supabase is configured but the client could not be initialized.');
+      if (metadata.coverUrl && metadata.coverUrl.startsWith('data:')) {
+        const base64Data = metadata.coverUrl.split(',')[1];
+        const byteCharacters = atob(base64Data);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const fileBlob = new Blob([byteArray], { type: 'image/jpeg' });
+        const { data, error } = await supabase.storage.from(COVER_BUCKET).upload(
+          `${Date.now()}-${metadata.isbn13}.jpg`,
+          fileBlob,
+          { contentType: 'image/jpeg' }
+        );
+        if (error) throw error;
+        const { data: publicUrlData } = await supabase.storage.from(COVER_BUCKET).getPublicUrl(
+          `${Date.now()}-${metadata.isbn13}.jpg`
+        );
+        coverPath = publicUrlData.publicUrl || `/${COVER_BUCKET}/${Date.now()}-${metadata.isbn13}.jpg`;
+      } else {
+        coverPath = normalizedCover;
+      }
       const { data, error } = await supabase.rpc('add_book_atomic', {
         p_isbn_10: metadata.isbn10 || null,
         p_isbn_13: isbn13,
@@ -141,7 +167,7 @@ export class LibraryService {
         p_language: metadata.language || 'en',
         p_page_count: metadata.pageCount || null,
         p_publisher: metadata.publisher || null,
-        p_cover_url: normalizedCover || null,
+        p_cover_url: coverPath || null,
         p_metadata_source: metadata.source,
         p_authors: metadata.authors.filter(Boolean),
         p_categories: metadata.categories.filter(Boolean),
@@ -161,7 +187,7 @@ export class LibraryService {
           publication_year: metadata.publicationYear,
           language: metadata.language || 'en',
           page_count: metadata.pageCount,
-          cover_url: normalizedCover,
+          cover_url: coverPath || normalizedCover,
           metadata_source: metadata.source,
           created_at: new Date().toISOString(),
           authors: [],
