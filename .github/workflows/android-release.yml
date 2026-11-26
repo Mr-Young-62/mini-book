@@ -133,6 +133,8 @@ jobs:
           APK_NAME="MeelieFont-${GITHUB_REF_NAME}.apk"
           APK_PATH="android/app/build/outputs/apk/release/app-release.apk"
           test -f "$APK_PATH" || (echo "Signed APK not found in android/app/build/outputs/apk/release" && exit 1)
+          "$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n1)/apksigner" verify --verbose --print-certs "$APK_PATH"
+          "$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n1)/aapt" dump badging "$APK_PATH" | grep -F "package: name='org.readowl.library'"
           echo "Using signed APK: $APK_PATH"
           if [ "$GCS" = "true" ]; then
             gcloud storage cp --cache-control="public,max-age=31536000,immutable" \

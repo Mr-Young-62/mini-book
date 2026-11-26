@@ -173,6 +173,8 @@ npx cap sync android
 npx cap open android
 ```
 
+For sideloading, install the signed APK from a tagged GitHub Release. Android Studio's `app-debug.apk` is for development; do not distribute an Android App Bundle (`.aab`) as an APK. Release builds must use the same keystore as the installed app or Android will reject an in-place update. CI verifies the APK signature and package ID before publishing.
+
 ### Android updates without USB
 Tagged releases build a signed APK with GitHub Actions, upload it to a public Google Cloud Storage bucket, verify the uploaded object, publish an update manifest (`latest.json`) to the same bucket, and send a Firebase Cloud Messaging (FCM) notification to Android devices subscribed to the update topic. The source repository can remain private. The manifest is the source of truth for version checks; FCM is only a best-effort signal that triggers a manifest check. The app checks the manifest on startup (throttled) and from Settings → Application Updates. A notification shows one in-app banner; tapping it opens update details and the APK download. Android still asks the user to confirm installation.
 
