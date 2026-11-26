@@ -89,11 +89,15 @@ jobs:
           mkdir -p upload
           find src-tauri/target -type f -path '*/bundle/*' -exec cp {} upload/ \;
           ls -la upload/
-          artifacts="$(find upload -type f \( -name '*.nsis.zip' -o -name '*.app.tar.gz' \) | wc -l)"
-          test "$artifacts" -ge 1 || (echo "No updater artifact staged" && exit 1)
           if [ "$SIGNING" = "true" ]; then
+            artifacts="$(find upload -type f \( -name '*.nsis.zip' -o -name '*.app.tar.gz' \) | wc -l)"
+            test "$artifacts" -ge 1 || (echo "Updater signing is enabled but no updater archive (.nsis.zip/.app.tar.gz) was generated" && exit 1)
             sigs="$(find upload -type f -name '*.sig' | wc -l)"
             test "$sigs" -ge "$artifacts" || (echo "Missing updater signatures ($artifacts artifacts vs $sigs sigs)" && exit 1)
+          else
+            installers="$(find upload -type f \( -name '*.exe' -o -name '*.msi' -o -name '*.dmg' \) | wc -l)"
+            test "$installers" -ge 1 || (echo "No desktop installer staged" && exit 1)
+            echo "Tauri updater signing is disabled; staging installers only."
           fi
 
       - name: Upload build artifacts
