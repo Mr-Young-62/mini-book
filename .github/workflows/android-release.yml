@@ -60,7 +60,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - name: Set up Java
@@ -92,6 +92,8 @@ jobs:
         env:
           GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           SIGNING: ${{ needs.preflight.outputs.signing }}
         run: |
           if [ -n "$GOOGLE_SERVICES_JSON_BASE64" ]; then
@@ -99,7 +101,13 @@ jobs:
           else
             echo "Google services JSON not configured; FCM will be unavailable."
           fi
-          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/meeliefont-release.jks
+          key_tmp="$(mktemp)"
+          trap 'rm -f "$key_tmp"' EXIT
+          if ! printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$key_tmp" 2>/dev/null || [ ! -s "$key_tmp" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 is not valid Base64. Re-encode the original .jks/.keystore as one Base64 string and update the repository secret."
+            exit 1
+          fi
+          mv "$key_tmp" android/app/meeliefont-release.jks
           test -s android/app/meeliefont-release.jks || (echo "::error::ANDROID_KEYSTORE_BASE64 did not decode to a non-empty keystore file." && exit 1)
           keytool -list -keystore android/app/meeliefont-release.jks -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null || (echo "::error::Android keystore/password/alias validation failed." && exit 1)
           npx cap sync android
