@@ -54,7 +54,7 @@ async function walk(dir) {
 }
 
 function targetFor(fileName) {
-  if (/\.nsis\.zip$/i.test(fileName)) return 'windows-x86_64';
+  if (/\.exe$/i.test(fileName)) return 'windows-x86_64';
   if (/\.app\.tar\.gz$/i.test(fileName)) {
     if (/_aarch64\./i.test(fileName) || /aarch64/i.test(fileName)) return 'darwin-aarch64';
     if (/_x64\.|x86_64/i.test(fileName)) return 'darwin-x86_64';
