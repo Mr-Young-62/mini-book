@@ -99,11 +99,12 @@ jobs:
           find src-tauri/target -type f -path '*/bundle/*' -exec cp {} upload/ \;
           ls -la upload/
           if [ "$SIGNING" = "true" ]; then
-            mapfile -t artifacts < <(find upload -type f \( -name '*.exe' -o -name '*.app.tar.gz' \) | sort)
-            test "${#artifacts[@]}" -ge 1 || (echo "Updater signing is enabled but no updater artifact (.exe/.app.tar.gz) was generated" && exit 1)
-            for artifact in "${artifacts[@]}"; do
+            artifacts=0
+            while IFS= read -r artifact; do
+              artifacts=$((artifacts + 1))
               test -s "${artifact}.sig" || (echo "Missing updater signature: ${artifact}.sig" && exit 1)
-            done
+            done < <(find upload -type f \( -name '*.exe' -o -name '*.app.tar.gz' \) | sort)
+            test "$artifacts" -ge 1 || (echo "Updater signing is enabled but no updater artifact (.exe/.app.tar.gz) was generated" && exit 1)
           else
             installers="$(find upload -type f \( -name '*.exe' -o -name '*.msi' -o -name '*.dmg' \) | wc -l)"
             test "$installers" -ge 1 || (echo "No desktop installer staged" && exit 1)
