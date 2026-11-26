@@ -133,8 +133,9 @@ export async function fetchBookMetadataByIsbn(isbn: string): Promise<MetadataFet
       body: { isbn: isbn13 },
     });
 
-    if (error) {
-      // Check if edge function returned a "found: false" response (200 with found:false)
+      // Handle "found: false" from Edge Function (HTTP 200 but no book matched).
+      // This is checked regardless of `error` because Supabase returns error: null
+      // when the function responds 200 with { found: false }.
       if (data && data.found === false) {
         return {
           success: false,
@@ -144,20 +145,22 @@ export async function fetchBookMetadataByIsbn(isbn: string): Promise<MetadataFet
           metadata: emptyMetadata(isbn10, isbn13),
         };
       }
-      // Fallback: classify based on error message for other errors
-      const errorType = classifyEdgeError(error);
-      return {
-        success: false,
-        errorType,
-        error: errorType === 'rate_limited'
-          ? 'Batas permintaan metadata tercapai (rate limit). Coba lagi beberapa saat atau isi detail buku secara manual.'
-          : `Pencarian metadata via Edge Function gagal: ${error.message}. Pastikan Edge Function "book-metadata" sudah di-deploy.`,
-        source: 'manual',
-        metadata: emptyMetadata(isbn10, isbn13),
-      };
-    }
 
-    if (data && (data as EdgeMetadataResponse).title && data.source) {
+      if (error) {
+        // Fallback: classify based on error message for other errors
+        const errorType = classifyEdgeError(error);
+        return {
+          success: false,
+          errorType,
+          error: errorType === 'rate_limited'
+            ? 'Batas permintaan metadata tercapai (rate limit). Coba lagi beberapa saat atau isi detail buku secara manual.'
+            : `Pencarian metadata via Edge Function gagal: ${error.message}. Pastikan Edge Function "book-metadata" sudah di-deploy.`,
+          source: 'manual',
+          metadata: emptyMetadata(isbn10, isbn13),
+        };
+      }
+
+      if (data && (data as EdgeMetadataResponse).title && data.source) {
       const metadata = mapEdgeResponse(data as EdgeMetadataResponse, isbn13, isbn10);
       if (isCacheWorthy(metadata)) {
         const result: MetadataFetchResult = {

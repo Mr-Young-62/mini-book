@@ -18,3 +18,9 @@ export interface DownloadResult {
   sha256: string;
   fileSize: number;
 }
+
+export interface InstallResult {
+  error?: string;
+  action?: 'openSettings';
+  settingsIntent?: string;
+}

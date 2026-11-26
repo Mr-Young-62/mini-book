@@ -89,11 +89,15 @@ async function prepareBookCover(file: File): Promise<string> {
     throw new Error('Ukuran foto maksimal 12 MB.');
   }
 
-  const imageUrl = URL.createObjectURL(file);
+    const imageUrl = URL.createObjectURL(file);
   try {
     const image = new Image();
     image.src = imageUrl;
     await image.decode();
+
+    if (!image.naturalWidth || !image.naturalHeight) {
+      throw new Error('Foto tidak dapat diproses (dimensi nol).');
+    }
 
     const maxDimension = 1200;
     const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
@@ -206,7 +210,14 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
             message: res.error,
           });
         }
-        setExistingBook(alreadyInCatalog);
+        // Pengecekan ulang katalog setelah lookup metadata, karena buku mungkin
+        // baru saja ditambahkan oleh pengguna lain selama lookup berjalan.
+        try {
+          const freshBook = await LibraryService.getBookByIsbn(cleaned);
+          if (freshBook) setExistingBook(freshBook);
+        } catch {
+          /* abaikan — katalog lokal tidak tersedia atau error jaringan */
+        }
       } else {
         setLookupStatus({
           type: res.errorType || 'general',
@@ -231,6 +242,7 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
     }
 
     if (result.kind === 'invalid_isbn') {
+      setIsbnInput(result.digits);
       setLookupStatus({
         type: 'invalid_isbn',
         message: `Kode ${result.digits} terdeteksi sebagai ISBN, tetapi checksum salah. Kode mentah berhasil dibaca dan disimpan untuk pengecekan manual.`,

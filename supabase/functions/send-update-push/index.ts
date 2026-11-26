@@ -69,8 +69,9 @@ serve(async (req) => {
   const notes = typeof body.notes === "string" ? body.notes.slice(0, 500) : "";
   const url = typeof body.url === "string" && body.url.startsWith("/") ? body.url : "/";
 
+  const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const supabase = createClient(
-    Deno.env.get("SUPABASE_URL") ?? "",
+    supabaseUrl,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
   );
   const { data: subscriptions, error } = await supabase
@@ -80,7 +81,14 @@ serve(async (req) => {
     return jsonResponse(500, { error: "subscription_read_failed", detail: error.message });
   }
 
-  const subject = Deno.env.get("VAPID_SUBJECT") ?? "mailto:admin@example.com";
+  let subject = Deno.env.get("VAPID_SUBJECT");
+  if (!subject) {
+    try {
+      subject = `mailto:admin@${new URL(supabaseUrl).hostname}`;
+    } catch {
+      subject = "mailto:admin@localhost";
+    }
+  }
   webPush.setVapidDetails(subject, vapidPublic, vapidPrivate);
 
   const payload = JSON.stringify({

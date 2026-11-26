@@ -4,24 +4,27 @@ import { MainLayout } from './layouts/MainLayout';
 import { AuthPage } from './pages/AuthPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { BookshelfPage } from './pages/BookshelfPage';
+import { PinjamanPage } from './pages/PinjamanPage';
 import { ScannerPage } from './pages/ScannerPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { UserRole } from './types/library';
+import { getErrorMessage } from './lib/errorMessage';
 import { normalizeUserRole } from './lib/userRole';
 import { UpdateNotifications } from './components/UpdateNotifications';
 import { UpdateBanner } from './components/updater/UpdateBanner';
 import { UpdateDialog } from './components/updater/UpdateDialog';
 import { DesktopUpdateBanner } from './components/updater/DesktopUpdateBanner';
 import { useAppUpdater } from './hooks/useAppUpdater';
-import { isSupabaseConfigured, resetSupabaseConfig, supabase } from './lib/supabase';
+import { isSupabaseConfigured, supabase } from './lib/supabase';
 import { LibraryService } from './services/libraryService';
+import { unsubscribeFromPush } from './services/pushService';
 
 const allowedTabs: Record<UserRole, string[]> = {
-  Owner: ['dashboard', 'books', 'scanner', 'reports', 'settings'],
-  Administrator: ['dashboard', 'books', 'scanner', 'reports', 'settings'],
-  Librarian: ['dashboard', 'books', 'scanner', 'reports'],
-  Member: ['dashboard', 'books', 'scanner'],
+  Owner: ['dashboard', 'books', 'pinjaman', 'scanner', 'reports', 'settings'],
+  Administrator: ['dashboard', 'books', 'pinjaman', 'scanner', 'reports', 'settings'],
+  Librarian: ['dashboard', 'books', 'pinjaman', 'scanner', 'reports', 'settings'],
+  Member: ['dashboard', 'books', 'pinjaman', 'scanner', 'settings'],
 };
 
 export default function App() {
@@ -72,6 +75,7 @@ export default function App() {
           forced={updater.forced}
           download={updater.download}
           installError={updater.installError}
+          installPermissionRequired={updater.installPermissionRequired}
           onStartDownload={updater.startDownload}
           onCancelDownload={updater.cancelDownload}
           onInstall={updater.installApk}
@@ -139,7 +143,7 @@ export default function App() {
       setAuthLoading(false);
     }).catch((error: unknown) => {
       if (!active) return;
-      setAuthError(error instanceof Error ? error.message : String(error));
+      setAuthError(getErrorMessage(error));
       setAuthLoading(false);
     });
 
@@ -187,7 +191,7 @@ export default function App() {
       setRoleLoading(false);
     }).catch((error: unknown) => {
       if (!active) return;
-      setAuthError(error instanceof Error ? error.message : String(error));
+      setAuthError(getErrorMessage(error));
       setCloudRole(null);
       setRoleLoading(false);
     });
@@ -213,15 +217,13 @@ export default function App() {
 
   const handleSignOut = async () => {
     if (!supabase) return;
+    try {
+      await unsubscribeFromPush();
+    } catch (error) {
+      console.error('Push subscription cleanup failed:', error);
+    }
     const { error } = await supabase.auth.signOut();
     if (error) setAuthError(error.message);
-  };
-
-  const handleUseLocalMode = () => {
-    if (window.confirm("Disconnect from Supabase and use this device's local library data?")) {
-      resetSupabaseConfig();
-      handleRefreshApp();
-    }
   };
 
   const handleRequestAccess = async () => {
@@ -255,7 +257,7 @@ export default function App() {
         <>
           <UpdateNotifications onUpdateSignal={updater.notifyFromPush} />
           {updaterUi}
-          <AuthPage supabase={null} message={authError} onUseLocalMode={handleUseLocalMode} />
+          <AuthPage supabase={null} message={authError} />
         </>
       );
     }
@@ -273,14 +275,13 @@ export default function App() {
             requestAccessBusy={accessRequestBusy}
             requestAccessNotice={accessRequestNotice}
             requestAccessError={accessRequestError}
-            onUseLocalMode={handleUseLocalMode}
           />
         </>
       );
     }
   }
 
-  const activeRole = isSupabaseConfigured ? cloudRole || 'Member' : userRole;
+  const activeRole = isSupabaseConfigured ? cloudRole || 'Administrator' : userRole;
   const activeTab = isSupabaseConfigured && !allowedTabs[activeRole].includes(currentTab)
     ? 'dashboard'
     : currentTab;
@@ -302,7 +303,6 @@ export default function App() {
         currentTab={activeTab}
         onSelectTab={setCurrentTab}
         userRole={activeRole}
-        onOpenQuickScan={() => setCurrentTab('scanner')}
         cloudMode={isSupabaseConfigured}
         onSignOut={isSupabaseConfigured ? handleSignOut : undefined}
       >
@@ -319,6 +319,8 @@ export default function App() {
           />
         )}
 
+        {activeTab === 'pinjaman' && <PinjamanPage />}
+
         {activeTab === 'scanner' && (
           <ScannerPage
             onBookCataloged={handleBookCataloged}
@@ -329,11 +331,7 @@ export default function App() {
         {activeTab === 'reports' && <ReportsPage />}
 
         {activeTab === 'settings' && (
-          <SettingsPage
-            userRole={activeRole}
-            onRefreshAppState={handleRefreshApp}
-            updater={updater}
-          />
+          <SettingsPage updater={updater} />
         )}
       </MainLayout>
     </>

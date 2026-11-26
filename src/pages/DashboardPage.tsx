@@ -101,7 +101,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
       try {
         const [libraryBooks, recentLogs] = await Promise.all([
           LibraryService.getAllBooks(),
-          userRole === 'Member' ? Promise.resolve([]) : LibraryService.getLogs(),
+          LibraryService.getLogs(),
         ]);
         setBooks(libraryBooks);
         setLogs(recentLogs);

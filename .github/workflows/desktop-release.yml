@@ -5,6 +5,10 @@ on:
     tags:
       - 'v*'
 
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
@@ -72,6 +76,8 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -117,6 +123,14 @@ jobs:
             echo "Verified ${name} (${local_size} bytes)"
           done < <(find artifacts -type f | sort)
 
+          mkdir -p release-assets
+          find artifacts -type f \( -name '*.exe' -o -name '*.msi' -o -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.nsis.zip' -o -name '*.sig' \) -exec cp {} release-assets/ \;
+          test "$(find release-assets -type f | wc -l)" -gt 0 || (echo "No desktop release assets staged" && exit 1)
+          (
+            cd release-assets
+            find . -maxdepth 1 -type f ! -name 'SHA256SUMS' -printf '%f\n' | sort | xargs sha256sum > SHA256SUMS
+          )
+
           # Best-effort changelog from the tag commit.
           CHANGES_FILE="$(mktemp)"
           git log --no-merges --pretty='- %s' -n 30 > "$CHANGES_FILE" || true
@@ -135,3 +149,12 @@ jobs:
             desktop-latest.json \
             "gs://${APK_STORAGE_BUCKET}/desktop/latest.json"
           echo "Published ${BASE_URL}/latest.json"
+
+      - name: Publish desktop assets to GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          name: MeelieFont ${{ github.ref_name }}
+          generate_release_notes: true
+          files: release-assets/*
+          fail_on_unmatched_files: true
+          overwrite_files: true

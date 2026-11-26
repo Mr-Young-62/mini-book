@@ -60,6 +60,22 @@ export interface LibrarySettings {
   };
 }
 
+export type LoanStatus = 'active' | 'overdue' | 'returned';
+
+export interface Loan {
+  id: string;
+  book_id: string;
+  book_title?: string;
+  borrower_name: string;
+  loan_date: string;
+  due_date: string;
+  return_date?: string;
+  status: LoanStatus;
+  user_id?: string;
+  created_at: string;
+  updated_at?: string;
+}
+
 export interface ScannedBookMetadata {
   title: string;
   subtitle?: string;

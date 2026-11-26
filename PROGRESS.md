@@ -558,7 +558,7 @@ Menilai kesiapan keamanan dan production sebelum Phase 1 dimulai, khususnya:
 |---|---|---|---|
 | 1 | Riwayat `.env` | `git log --all -- .env` | Hanya 1 commit: `c64df66` (`update v0.4`), aksi `A` (add). Belum pernah dihapus dari riwayat. |
 | 2 | Seluruh object riwayat | Scan 321 object via `git rev-list --all --objects` + `cat-file` | Secret-shaped string hanya di `.env`. |
-| 3 | Dokumen (`README.md`, `.env.example`, `PROGRESS.md`, `config.toml`) | Pola `sbp_`/`AIza`/JWT | Semua **placeholder** (`sbp_your_publishable_key_here`) — false positive. |
+| 3 | Dokumen (`README.md`, `.env.example`, `PROGRESS.md`, `config.toml`) | Pola `sb_publishable_`/`AIza`/JWT | Semua **placeholder** (`sb_publishable_your_key_here`), false positive. |
 | 4 | Remote Edge Functions | `npx supabase functions list` | **Terblokir**: `AccessTokenRequiredError`. |
 | 5 | Source Edge Functions | `git show HEAD:supabase/functions/{admin,reports}/index.ts` | Dibaca dari riwayat (read-only). |
 | 6 | 5 migrasi berurutan | Read + cross-check ke `initial_schema.sql` & `circulation_logic.sql` | Detail di 11.5. |
@@ -1428,7 +1428,7 @@ git commit -m "security: harden RLS, secrets, CSV, and soft delete"
 | # | Bagian | Detail |
 |---|---|---|
 | 1 | `REQUEST_INSTALL_PACKAGES` | Ditambahkan ke `AndroidManifest.xml`. Tanpa izin ini, Android 8+ tidak akan mengizinkan instalasi APK dari aplikasi. |
-| 2 | `AppUpdaterPlugin.install` | Validasi path + file ada. Cek `canRequestPackageInstalls()` (API 26+); API 24 fallback `getPackageInfo("com.android.packageinstaller")`. Jika tidak diizinkan → resolve dengan `action: openSettings`. Buat `FileProvider` URI (`org.readowl.library.fileprovider`), `ACTION_VIEW` + `application/vnd.android.package-apk`, flag `FLAG_GRANT_READ_URI_PERMISSION` + `FLAG_ACTIVITY_NEW_TASK`. |
+| 2 | `AppUpdaterPlugin.install` | Validasi path + file ada. Cek `canRequestPackageInstalls()` (API 26+); API 24 fallback `getPackageInfo("com.android.packageinstaller")`. Jika tidak diizinkan → resolve dengan `action: openSettings`. Buat `FileProvider` URI (`org.readowl.library.fileprovider`), `ACTION_VIEW` + `application/vnd.android.package-archive`, flag `FLAG_GRANT_READ_URI_PERMISSION` + `FLAG_ACTIVITY_NEW_TASK`. |
 | 3 | `AppUpdaterPlugin.openSettings` | `ACTION_MANAGE_UNKNOWN_APP_SOURCES` (API 26+) / `ACTION_APPLICATION_SETTINGS` (API 24). |
 | 4 | `useAppUpdater` | `installApk` + `openInstallerSettings` + state `installError`. |
 | 5 | `UpdateDialog` | Tombol "Instal APK" (hanya saat `ready`), pesan error, link "Izin tidak diberikan? Buka Pengaturan". |

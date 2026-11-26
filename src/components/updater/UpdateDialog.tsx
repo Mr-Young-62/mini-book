@@ -1,6 +1,7 @@
 import React from 'react';
 import { Download, X } from 'lucide-react';
 import type { DownloadState } from '../../hooks/useAppUpdater';
+import { getErrorMessage } from '../../lib/errorMessage';
 import { openDownloadUrl, type UpdateManifest } from '../../services/updateService';
 
 interface UpdateDialogProps {
@@ -10,6 +11,7 @@ interface UpdateDialogProps {
   forced: boolean;
   download: DownloadState;
   installError: string | null;
+  installPermissionRequired: boolean;
   onStartDownload: () => void;
   onCancelDownload: () => void;
   onInstall: () => Promise<void>;
@@ -29,6 +31,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
   forced,
   download,
   installError,
+  installPermissionRequired,
   onStartDownload,
   onCancelDownload,
   onInstall,
@@ -45,7 +48,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
     try {
       await openDownloadUrl(manifest.downloadUrl);
     } catch (error) {
-      setBrowserError(error instanceof Error ? error.message : String(error));
+      setBrowserError(getErrorMessage(error));
     }
   };
 
@@ -152,13 +155,13 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
               Unduh APK
             </button>
           )}
-          {download.phase === 'ready' && (
+          {download.phase === 'ready' && installPermissionRequired && (
             <button
               type="button"
               onClick={onOpenSettings}
-              className="text-[11px] text-[#6E737D] underline-offset-2 hover:underline"
+              className="min-h-[44px] text-[11px] font-semibold text-[#18362F] underline-offset-2 hover:underline"
             >
-              Izin tidak diberikan? Buka Pengaturan
+              Buka Pengaturan Izin Install
             </button>
           )}
         </div>

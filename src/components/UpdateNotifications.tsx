@@ -1,20 +1,25 @@
-import React, { useEffect } from 'react';
-import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
+import React, { useEffect, useRef } from 'react';
+import type { PluginListenerHandle } from '@capacitor/core';
 import { FirebaseMessaging } from '@capacitor-firebase/messaging';
-
-const updateTopic = 'meeliefont-updates';
+import { enableAndroidNotifications, isAndroidPlatform } from '../services/pushService';
 
 interface UpdateNotificationsProps {
   onUpdateSignal?: () => void;
 }
 
 export const UpdateNotifications: React.FC<UpdateNotificationsProps> = ({ onUpdateSignal }) => {
+  const onUpdateSignalRef = useRef(onUpdateSignal);
+
   useEffect(() => {
-    if (Capacitor.getPlatform() !== 'android') return;
+    onUpdateSignalRef.current = onUpdateSignal;
+  }, [onUpdateSignal]);
+
+  useEffect(() => {
+    if (!isAndroidPlatform()) return;
 
     let active = true;
     const listeners: PluginListenerHandle[] = [];
-    const signal = () => onUpdateSignal?.();
+    const signal = () => onUpdateSignalRef.current?.();
 
     const initializePushNotifications = async () => {
       try {
@@ -27,13 +32,8 @@ export const UpdateNotifications: React.FC<UpdateNotificationsProps> = ({ onUpda
         }
         listeners.push(receivedListener, actionListener);
 
-        const permissions = await FirebaseMessaging.checkPermissions();
-        const permissionState = permissions.receive === 'granted'
-          ? 'granted'
-          : (await FirebaseMessaging.requestPermissions()).receive;
-        if (!active || permissionState !== 'granted') return;
-
-        await FirebaseMessaging.subscribeToTopic({ topic: updateTopic });
+        await enableAndroidNotifications();
+        if (!active) return;
       } catch (error) {
         if (active) console.error('Could not enable Android update notifications:', error);
       }
@@ -45,7 +45,7 @@ export const UpdateNotifications: React.FC<UpdateNotificationsProps> = ({ onUpda
       active = false;
       listeners.forEach((listener) => void listener.remove());
     };
-  }, [onUpdateSignal]);
+  }, []);
 
   return null;
 };

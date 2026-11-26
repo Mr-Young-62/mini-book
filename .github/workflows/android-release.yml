@@ -5,6 +5,10 @@ on:
     tags:
       - 'v*'
 
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
@@ -107,11 +111,18 @@ jobs:
           test "$CONTENT_LENGTH" = "$LOCAL_SIZE" || (echo "Upload verification failed: remote=$CONTENT_LENGTH local=$LOCAL_SIZE" && exit 1)
           echo "Verified uploaded APK: $PUBLIC_URL ($LOCAL_SIZE bytes)"
 
+          mkdir -p ../release-assets
+          cp "$APK_PATH" "../release-assets/${APK_NAME}"
+          sha256sum "../release-assets/${APK_NAME}" > "../release-assets/${APK_NAME}.sha256"
+
       - name: Publish APK release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           name: MeelieFont ${{ github.ref_name }}
           generate_release_notes: true
+          files: release-assets/*
+          fail_on_unmatched_files: true
+          overwrite_files: true
 
       - name: Publish update manifest (latest.json)
         env:
@@ -186,8 +197,13 @@ jobs:
         if: always()
         run: rm -f android/app/meeliefont-release.jks android/app/google-services.json
 
-  notify-devices:
+  deploy-web:
     needs: build-and-release
+    uses: ./.github/workflows/vercel-release.yml
+    secrets: inherit
+
+  notify-devices:
+    needs: [build-and-release, deploy-web]
     runs-on: ubuntu-latest
     steps:
       - name: Authenticate to Firebase

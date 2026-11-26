@@ -3,6 +3,7 @@ import type {
   DownloadOptions,
   DownloadProgress,
   DownloadResult,
+  InstallResult,
 } from '../types/updater';
 import type { UpdateManifest } from './updateService';
 
@@ -10,7 +11,7 @@ interface AppUpdaterBridge {
   download(options: DownloadOptions): Promise<DownloadResult>;
   cancel(): Promise<void>;
   cleanup(): Promise<void>;
-  install(options: { path: string }): Promise<void>;
+  install(options: { path: string }): Promise<InstallResult | void>;
   openSettings(): Promise<void>;
   addListener(eventName: 'downloadProgress', listenerFunc: (event: DownloadProgress) => void): Promise<PluginListenerHandle>;
 }
@@ -42,7 +43,7 @@ export function cleanupOldDownloads(): Promise<void> {
   return AppUpdater.cleanup();
 }
 
-export function installApk(path: string): Promise<void> {
+export function installApk(path: string): Promise<InstallResult | void> {
   return AppUpdater.install({ path });
 }
 

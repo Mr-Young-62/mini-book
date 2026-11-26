@@ -17,6 +17,7 @@ import {
   onDownloadProgress,
   openInstallerSettings,
 } from '../services/updaterBridge';
+import { getErrorMessage } from '../lib/errorMessage';
 import type { DownloadResult } from '../types/updater';
 
 export interface DownloadState {
@@ -54,6 +55,7 @@ export interface UpdaterApi {
   startDownload: () => Promise<void>;
   cancelDownload: () => Promise<void>;
   installError: string | null;
+  installPermissionRequired: boolean;
   installApk: () => Promise<void>;
   openInstallerSettings: () => Promise<void>;
   desktop: DesktopUpdateState;
@@ -97,6 +99,7 @@ export function useAppUpdater(): UpdaterApi {
   const [result, setResult] = useState<UpdateCheckResult>(initialResult);
   const [download, setDownload] = useState<DownloadState>(initialDownload);
   const [installError, setInstallError] = useState<string | null>(null);
+  const [installPermissionRequired, setInstallPermissionRequired] = useState(false);
   const [desktop, setDesktop] = useState<DesktopUpdateState>(initialDesktop);
   const platform: UpdaterPlatform = isTauriPlatform()
     ? 'desktop'
@@ -109,7 +112,7 @@ export function useAppUpdater(): UpdaterApi {
     try {
       setResult(await checkForUpdate({ manual, force }));
     } catch (error) {
-      console.warn('Update check failed:', error instanceof Error ? error.message : String(error));
+      console.warn('Update check failed:', getErrorMessage(error));
       setResult({ status: 'unavailable', manifest: null, forced: false, dismissed: false });
     } finally {
       setChecking(false);
@@ -139,11 +142,12 @@ export function useAppUpdater(): UpdaterApi {
         }));
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = getErrorMessage(error);
       console.warn('Desktop update check failed:', message);
       setDesktop((prev) => ({
         ...prev,
-        error: manual ? message : prev.error,
+        available: false,
+        error: manual ? message : message,
         manualStatus: manual ? 'error' : prev.manualStatus,
       }));
     } finally {
@@ -216,7 +220,7 @@ export function useAppUpdater(): UpdaterApi {
       setDownload((prev) => ({
         ...prev,
         phase: 'error',
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       }));
     } finally {
       await handle.remove();
@@ -230,6 +234,8 @@ export function useAppUpdater(): UpdaterApi {
       console.warn('Could not cancel download:', error);
     }
     setDownload({ ...initialDownload });
+    setInstallError(null);
+    setInstallPermissionRequired(false);
   }, []);
 
   const installApk = useCallback(async () => {
@@ -239,10 +245,15 @@ export function useAppUpdater(): UpdaterApi {
       return;
     }
     setInstallError(null);
+    setInstallPermissionRequired(false);
     try {
-      await installApkBridge(path);
+      const installResult = await installApkBridge(path);
+      if (installResult && installResult.action === 'openSettings') {
+        setInstallPermissionRequired(true);
+        setInstallError(installResult.error || 'Izin memasang aplikasi dari sumber ini belum diberikan.');
+      }
     } catch (error) {
-      setInstallError(error instanceof Error ? error.message : String(error));
+      setInstallError(getErrorMessage(error));
     }
   }, [download.result]);
 
@@ -250,7 +261,7 @@ export function useAppUpdater(): UpdaterApi {
     try {
       await openInstallerSettings();
     } catch (error) {
-      setInstallError(error instanceof Error ? error.message : String(error));
+      setInstallError(getErrorMessage(error));
     }
   }, []);
 
@@ -278,7 +289,7 @@ export function useAppUpdater(): UpdaterApi {
       setDesktop((prev) => ({
         ...prev,
         downloading: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       }));
     }
   }, []);
@@ -310,10 +321,11 @@ export function useAppUpdater(): UpdaterApi {
     startDownload,
     cancelDownload,
     installError,
+    installPermissionRequired,
     installApk,
     openInstallerSettings: handleOpenInstallerSettings,
     desktop,
     startDesktopUpdate,
     dismissDesktopUpdate,
-  }), [platform, checking, result, current.version, current.versionCode, checkManually, dismiss, notifyFromPush, download, startDownload, cancelDownload, installError, installApk, handleOpenInstallerSettings, desktop, startDesktopUpdate, dismissDesktopUpdate]);
+  }), [platform, checking, result, current.version, current.versionCode, checkManually, dismiss, notifyFromPush, download, startDownload, cancelDownload, installError, installPermissionRequired, installApk, handleOpenInstallerSettings, desktop, startDesktopUpdate, dismissDesktopUpdate]);
 }

@@ -3,6 +3,7 @@ import { CheckCircle2, LoaderCircle, LogOut, ShieldAlert } from 'lucide-react';
 import { SupabaseClient } from '@supabase/supabase-js';
 import brandLogo from '../assets/meeliefont-logo.png';
 import { resolveAuthRedirectUrl } from '../lib/authRedirect';
+import { getErrorMessage } from '../lib/errorMessage';
 
 interface AuthPageProps {
   supabase: SupabaseClient | null;
@@ -13,18 +14,10 @@ interface AuthPageProps {
   requestAccessBusy?: boolean;
   requestAccessNotice?: string | null;
   requestAccessError?: string | null;
-  onUseLocalMode?: () => void;
 }
 
 function getAuthErrorMessage(error: unknown, action: 'login' | 'register' | 'google'): string {
-  const message = error instanceof Error ? error.message : String(error);
-  const code = typeof error === 'object' && error !== null && 'code' in error
-    ? String(error.code)
-    : '';
-
-  if (code === 'email_not_confirmed' || message.toLowerCase().includes('email not confirmed')) {
-    return 'Email belum diverifikasi. Buka email verifikasi atau kirim ulang sebelum masuk.';
-  }
+  const message = getErrorMessage(error);
   if (action === 'google') return `Login Google gagal: ${message}`;
   if (action === 'register') return `Registrasi gagal: ${message}`;
   return `Login gagal: ${message}`;
@@ -39,7 +32,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({
   requestAccessBusy = false,
   requestAccessNotice,
   requestAccessError,
-  onUseLocalMode,
 }) => {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [fullName, setFullName] = useState('');
@@ -49,7 +41,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [resending, setResending] = useState(false);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -76,23 +67,20 @@ export const AuthPage: React.FC<AuthPageProps> = ({
     setSubmitting(true);
     try {
       if (mode === 'register') {
-        const emailRedirectTo = resolveAuthRedirectUrl(
-          import.meta.env.VITE_AUTH_REDIRECT_URL,
-          window.location.origin,
-        );
         const { data, error: signUpError } = await supabase.auth.signUp({
           email: normalizedEmail,
           password,
           options: {
             data: { full_name: fullName.trim() },
-            emailRedirectTo,
           },
         });
         if (signUpError) throw signUpError;
 
-        if (!data.session) {
+        if (data.session) {
+          setNotice('Registrasi berhasil. Anda telah masuk secara otomatis.');
+        } else {
           const recipient = data.user?.email || normalizedEmail;
-          setNotice(`Registrasi berhasil. Email verifikasi dikirim ke ${recipient}. Periksa inbox dan folder spam.`);
+          setNotice(`Registrasi berhasil untuk ${recipient}. Jika belum bisa masuk, nonaktifkan Confirm email di Supabase Dashboard.`);
         }
       } else {
         const { error: signInError } = await supabase.auth.signInWithPassword({
@@ -147,30 +135,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({
     }
   };
 
-  const handleResendConfirmation = async () => {
-    if (!supabase || !email.trim()) return;
-    setError(null);
-    setNotice(null);
-    setResending(true);
-    try {
-      const emailRedirectTo = resolveAuthRedirectUrl(
-        import.meta.env.VITE_AUTH_REDIRECT_URL,
-        window.location.origin,
-      );
-      const { error: resendError } = await supabase.auth.resend({
-        type: 'signup',
-        email: email.trim().toLowerCase(),
-        options: { emailRedirectTo },
-      });
-      if (resendError) throw resendError;
-      setNotice(`Permintaan email verifikasi ulang untuk ${email.trim().toLowerCase()} berhasil dikirim. Periksa inbox dan folder spam.`);
-    } catch (resendError) {
-      setError(getAuthErrorMessage(resendError, 'register'));
-    } finally {
-      setResending(false);
-    }
-  };
-
   return (
     <main className="min-h-screen bg-[#E4DFCE] flex items-center justify-center p-4">
       <section className="w-full max-w-sm rounded-3xl border border-[#ECEEF2] bg-white p-7 shadow-[0_18px_40px_-12px_rgba(20,24,31,0.12)]">
@@ -201,14 +165,14 @@ export const AuthPage: React.FC<AuthPageProps> = ({
 
         {!supabase ? (
           <p className="text-sm text-[#4B5563]">
-            The Supabase client could not be initialized. Check the URL and publishable key in Settings.
+            Koneksi Supabase belum tersedia. Periksa konfigurasi lingkungan aplikasi, lalu muat ulang halaman.
           </p>
         ) : onSignOut ? (
           <div className="space-y-4">
             <p className="text-sm text-[#4B5563]">
               {canRequestAccess
-                ? 'Akun terautentikasi, tetapi belum memiliki role perpustakaan. Ajukan akses kepada administrator atau gunakan mode lokal.'
-                : 'Role akun gagal dimuat. Periksa pesan di atas, lalu hubungi administrator atau gunakan mode lokal.'}
+                ? 'Akun terautentikasi, tetapi belum memiliki role perpustakaan. Ajukan akses kepada administrator.'
+                : 'Role akun gagal dimuat. Periksa pesan di atas, lalu hubungi administrator.'}
             </p>
             {canRequestAccess && onRequestAccess && (
               <button
@@ -309,20 +273,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({
             <p className="text-center text-[11px] text-[#6E737D]">
               Google OAuth langsung masuk tanpa kode verifikasi email tambahan.
             </p>
-            {mode === 'register' && notice && (
-              <button
-                type="button"
-                onClick={() => void handleResendConfirmation()}
-                disabled={resending || !email.trim()}
-                className="w-full text-center text-xs font-semibold text-[#18362F] hover:underline disabled:opacity-50"
-              >
-                {resending ? 'Mengirim ulang...' : 'Kirim ulang email konfirmasi'}
-              </button>
-            )}
             <p className="text-center text-[11px] leading-relaxed text-[#6E737D]">
               {mode === 'register'
-                ? 'Akun baru hanya mendapat akses Member. Hak akses staf diberikan administrator.'
-                : 'Jika belum memiliki akun, Anda dapat mendaftar sementara.'}
+                ? 'Akun baru mendapat role Administrator dan dapat mengakses pengaturan aplikasi.'
+                : 'Jika belum memiliki akun, Anda dapat mendaftar.'}
             </p>
             {mode === 'login' && (
               <button
@@ -345,15 +299,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({
               {mode === 'login' ? 'Belum punya akun? Daftar' : 'Sudah punya akun? Masuk'}
             </button>
           </form>
-        )}
-        {onUseLocalMode && (
-          <button
-            type="button"
-            onClick={onUseLocalMode}
-            className="mt-4 w-full text-center text-xs font-medium text-[#6E737D] underline hover:text-[#14181F]"
-          >
-            Disconnect and use local library
-          </button>
         )}
       </section>
     </main>

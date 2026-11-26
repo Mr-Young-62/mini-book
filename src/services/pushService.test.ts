@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isWebPushSupported, urlBase64ToUint8Array } from './pushService';
+import { describeNotificationError, isWebPushSupported, isValidVapidPublicKey, urlBase64ToUint8Array } from './pushService';
 
 describe('pushService', () => {
   it('decodes url-safe base64 VAPID keys to bytes', () => {
@@ -14,7 +14,22 @@ describe('pushService', () => {
     expect(Array.from(bytes)).toEqual([0xfb, 0xff]);
   });
 
+  it('validates uncompressed VAPID public keys', () => {
+    expect(isValidVapidPublicKey('aGVsbG8')).toBe(false);
+    expect(isValidVapidPublicKey('A'.repeat(87))).toBe(true);
+  });
+
   it('reports push support only when browser APIs exist', () => {
     expect(typeof isWebPushSupported()).toBe('boolean');
+  });
+
+  it('explains browser push registration failures without raw browser text', () => {
+    const message = describeNotificationError(new Error('Registration failed - push service error'));
+    expect(message).toContain('HTTPS');
+    expect(message).toContain('/sw.js');
+  });
+
+  it('renders object errors as readable messages', () => {
+    expect(describeNotificationError({ message: 'relasi tidak ada' })).toBe('relasi tidak ada');
   });
 });

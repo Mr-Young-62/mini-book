@@ -60,6 +60,9 @@ export function BarcodeScanner({ onDetected, onScan, onClose, active = true, isP
     const value = (raw || '').trim();
     if (!value || doneRef.current || isProcessing) return false;
 
+    // Tandai selesai segera agar decode cepat berikutnya tidak melewati pengecekan.
+    doneRef.current = true;
+
     const resolved = resolveScannedCode(value);
     setRawValue(value);
     setDetectedFormat(format ? formatLabel(format) : 'UNKNOWN');
@@ -78,7 +81,6 @@ export function BarcodeScanner({ onDetected, onScan, onClose, active = true, isP
       return true;
     }
 
-    doneRef.current = true;
     navigator.vibrate?.(60);
     onScan?.(value);
     onDetected?.(resolved);

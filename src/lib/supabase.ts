@@ -4,15 +4,14 @@ const envUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const envKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 export const buildTimeSupabaseUrl = envUrl;
 
-function getStoredConfig(): { url: string; key: string; disabled: boolean } {
+function getStoredConfig(): { url: string; key: string } {
   try {
     return {
       url: typeof window !== 'undefined' ? localStorage.getItem('readowl_supabase_url') || '' : '',
       key: typeof window !== 'undefined' ? localStorage.getItem('readowl_supabase_key') || '' : '',
-      disabled: typeof window !== 'undefined' && localStorage.getItem('readowl_supabase_disabled') === 'true',
     };
   } catch {
-    return { url: '', key: '', disabled: false };
+    return { url: '', key: '' };
   }
 }
 
@@ -27,7 +26,6 @@ function isValidConfig(url: string, key: string): boolean {
 
 function isServiceRoleKey(key: string): boolean {
   if (/^sb_secret_/i.test(key)) return true;
-  if (/^sbp_/i.test(key)) return true;
   const parts = key.split('.');
   if (parts.length !== 3) return false;
   try {
@@ -63,11 +61,11 @@ export let effectiveSupabaseUrl = '';
 export let effectiveSupabaseKey = '';
 export let isSupabaseConfigured = false;
 export let supabase: SupabaseClient | null = null;
-export const metadataSupabase: SupabaseClient | null = createSupabaseClient(envUrl, envKey);
+export let metadataSupabase: SupabaseClient | null = createSupabaseClient(envUrl, envKey);
 
 const storedConfig = getStoredConfig();
-effectiveSupabaseUrl = storedConfig.disabled ? '' : storedConfig.url || envUrl;
-effectiveSupabaseKey = storedConfig.disabled ? '' : storedConfig.key || envKey;
+effectiveSupabaseUrl = storedConfig.url || envUrl;
+effectiveSupabaseKey = storedConfig.key || envKey;
 isSupabaseConfigured = isValidConfig(effectiveSupabaseUrl, effectiveSupabaseKey);
 supabase = createSupabaseClient(effectiveSupabaseUrl, effectiveSupabaseKey);
 
@@ -76,6 +74,7 @@ function refreshSupabaseClient(url: string, key: string): void {
   effectiveSupabaseKey = key;
   isSupabaseConfigured = isValidConfig(url, key);
   supabase = createSupabaseClient(url, key);
+  metadataSupabase = createSupabaseClient(url, key);
 }
 
 /**
@@ -110,23 +109,12 @@ export function configureSupabase(url: string, key: string): { success: boolean;
       return { success: false, error: 'Invalid Supabase Publishable / Anon key format' };
     }
 
-    const normalizedUrl = `${parsedUrl.protocol}//${parsedUrl.host}`;
+    const normalizedUrl = parsedUrl.toString();
     localStorage.setItem('readowl_supabase_url', normalizedUrl);
     localStorage.setItem('readowl_supabase_key', key);
-    localStorage.removeItem('readowl_supabase_disabled');
     refreshSupabaseClient(normalizedUrl, key);
     return { success: true };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-export function resetSupabaseConfig(): void {
-  try {
-    localStorage.removeItem('readowl_supabase_url');
-    localStorage.removeItem('readowl_supabase_key');
-    localStorage.setItem('readowl_supabase_disabled', 'true');
-  } finally {
-    refreshSupabaseClient('', '');
   }
 }

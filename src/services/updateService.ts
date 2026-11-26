@@ -1,3 +1,5 @@
+import { getErrorMessage } from '../lib/errorMessage';
+
 const APP_ID = 'org.readowl.library';
 const HOST_ALLOWLIST = new Set(['storage.googleapis.com']);
 const APK_PATH_RE = /^\/[a-z0-9._-]+\/MeelieFont-v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\.apk$/i;
@@ -238,9 +240,15 @@ async function fetchOnce(url: string): Promise<UpdateManifest> {
     if (!response.ok) throw new Error(`Manifest HTTP ${response.status}`);
     const contentType = response.headers.get('content-type') || '';
     if (!contentType.includes('json')) throw new Error('Manifest is not JSON');
-    const manifest = validateManifest(await response.json());
+    const raw = await response.json();
+    if (!isRecord(raw)) throw new Error('Manifest is not an object');
+    // Verify signature on the raw payload BEFORE defaults are injected, so the
+    // canonical JSON matches exactly what the server signed.
+    if (!(await verifySignatureWithKey(raw as unknown as UpdateManifest, UPDATER_PUBLIC_KEY_B64))) {
+      throw new Error('Manifest signature is invalid');
+    }
+    const manifest = validateManifest(raw);
     if (!manifest) throw new Error('Manifest failed validation');
-    if (!(await verifyManifestSignature(manifest))) throw new Error('Manifest signature is invalid');
     return manifest;
   } finally {
     clearTimeout(timeout);
@@ -290,7 +298,7 @@ async function runCheck(manual: boolean, force: boolean): Promise<UpdateCheckRes
     writeJson(STORAGE_MANIFEST, { fetchedAt: state.lastCheckAt, manifest } satisfies CachedManifest);
     return evaluateManifest(manifest, current.versionCode, state.lastSeenVersionCode);
   } catch (error) {
-    console.warn('Update manifest check failed:', error instanceof Error ? error.message : String(error));
+    console.warn('Update manifest check failed:', getErrorMessage(error));
     state = {
       lastCheckAt: new Date().toISOString(),
       failures: state.failures + 1,

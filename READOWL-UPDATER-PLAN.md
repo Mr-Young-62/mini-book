@@ -322,7 +322,7 @@ kode aktual, diperketat dengan versi.
 | Aspek | Rancangan |
 |---|---|
 | Capacitor Android | Plugin native terdaftar via `registerPlugin` (iOS: tidak ada updater APK → guard `Capacitor.getPlatform() === 'android'`) |
-| Android Package Installer | `Intent.ACTION_VIEW` + `application/vnd.android.package-apk`, `data` = content URI FileProvider, flag `FLAG_GRANT_READ_URI_PERMISSION` |
+| Android Package Installer | `Intent.ACTION_VIEW` + `application/vnd.android.package-archive`, `data` = content URI FileProvider, flag `FLAG_GRANT_READ_URI_PERMISSION` |
 | Izin Android 8+ | Cek `packageManager.canRequestPackageInstalls()` → bila false: buka Settings `ACTION_MANAGE_UNKNOWN_APP_SOURCES` (package URI) → kembali → lanjut instal. Android 7 (minSdk 24): "Unknown sources" global → cukup dialog sistem bawaan |
 | FileProvider | **Sudah ada** (temuan audit): authority `${applicationId}.fileprovider`, `file_paths.xml` sudah punya `cache-path` — APK di `cacheDir/updates/` **sudah tercakup** tanpa ubah manifest. Catatan F-4: pertimbangkan mempersempit path di kemudian hari (perubahan terpisah, butuh persetujuan) |
 | Status download | Bar persen + MB terunduh + kecepatan estimasi; tombol Batal aktif selama download |

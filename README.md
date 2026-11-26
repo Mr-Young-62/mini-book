@@ -32,7 +32,7 @@ mini-book/
 │   │   ├── 20261119000100_remove_physical_copies.sql # Drops copy/circulation data model, adds add_book_atomic RPC
 │   │   ├── 20261119000200_remove_members.sql # Drops patron records and membership enums
 │   │   ├── 20261119000300_update_book_atomic.sql # Historical book edit RPC
-│   │   ├── 20261119000400_auth_registration.sql # Profile and Member role on signup
+│   │   ├── 20261119000400_auth_registration.sql # Profile and registration role on signup
 │   │   ├── 20261119000500_profile_access_policies.sql # Own-profile/role RLS
 │   │   ├── 20261119000600_private_user_catalogs.sql # Per-user book ownership and RLS
 │   │   └── 20261119000700_auth_role_repair.sql # Role lookup repair, access requests, role management
@@ -90,7 +90,7 @@ npx supabase db reset --seed
 To use Supabase from the web app, add these values to a root `.env` file:
 ```env
 VITE_SUPABASE_URL="https://your-project-id.supabase.co"
-VITE_SUPABASE_PUBLISHABLE_KEY="sbp_your_publishable_key_here"
+VITE_SUPABASE_PUBLISHABLE_KEY="sb_publishable_your_key_here"
 VITE_AUTH_REDIRECT_URL="https://your-production-app.example"
 ```
 
@@ -108,14 +108,14 @@ SELECT 'AUTH_USER_UUID', id FROM public.roles WHERE name = 'Administrator'
 ON CONFLICT (user_id, role_id) DO NOTHING;
 ```
 The user signs in to MeelieFont with that email and password. Never put a Supabase `service_role` key in the browser app.
-The role selector shown without Supabase is only a UI preview; cloud permissions come from the authenticated user's `public.user_roles` record and RLS. For hosted projects, public email sign-ups should remain disabled unless the temporary member registration flow below is intentionally enabled.
+The role selector shown without Supabase is only a UI preview; cloud permissions come from the authenticated user's `public.user_roles` record and RLS. Public email sign-ups receive `Administrator`; disable sign-ups in Supabase Dashboard if that is not intended.
 
 ### Email and Google authentication
-Apply migrations `20261119000400_auth_registration.sql`, `20261119000500_profile_access_policies.sql`, `20261119000600_private_user_catalogs.sql`, and `20261119000700_auth_role_repair.sql` to the hosted project. Email/password registration uses Supabase `signUp`; confirmation mail is sent by Supabase Auth through the SMTP provider configured in **Supabase Dashboard → Authentication → SMTP Settings**. For Resend, use the Resend SMTP host and credentials and a sender address on a domain verified for that Resend key. The browser app does not call the Resend API directly and must not be given a Resend API key. Keep **Confirm email** enabled under **Authentication → Providers → Email**. Registration creates the profile and least-privileged `Member` role in a database trigger; client metadata cannot assign staff access.
+Apply migrations `20261119000400_auth_registration.sql`, `20261119000500_profile_access_policies.sql`, `20261119000600_private_user_catalogs.sql`, and `20261119000700_auth_role_repair.sql` to the hosted project. Email/password registration uses Supabase `signUp`; confirmation mail is sent by Supabase Auth through the SMTP provider configured in **Supabase Dashboard → Authentication → SMTP Settings**. For Resend, use the Resend SMTP host and credentials and a sender address on a domain verified for that Resend key. The browser app does not call the Resend API directly and must not be given a Resend API key. Keep **Confirm email** enabled under **Authentication → Providers → Email** in the hosted project. Local Supabase config disables confirmation for development only. Registration creates the profile and `Administrator` role in a database trigger; client metadata cannot assign roles.
 
 The sign-in screen also supports Google OAuth. Enable Google under **Authentication → Providers → Google** and configure its client ID and secret. In Google Cloud Console, allow the Supabase callback URL `https://<project-ref>.supabase.co/auth/v1/callback`; in Supabase **Authentication → URL Configuration → Redirect URLs**, allow the exact app origins for local development and production. Set `VITE_AUTH_REDIRECT_URL` to the production app origin in the hosting provider's build environment. If omitted, the current page origin is used. Google sign-in creates a Supabase session directly and does not request an additional email verification code.
 
-Roles use the existing `public.roles` and `public.user_roles` tables: `Owner` (Super Admin / Owner), `Administrator` (Admin Perpustakaan), `Librarian` (Petugas), and `Member` (Anggota). New accounts receive only `Member`; no migration assigns `Owner` automatically. The `current_user_role()` RPC uses `auth.uid()`, returns `NULL` when no role is assigned, and is granted to authenticated users only. The role-repair migration asks PostgREST to reload its schema cache. If a signed-in account has no role, it remains outside role-protected pages and can submit an access request; administrators can review requests and manage roles in Settings. Only an existing Owner can grant or change Owner access; an administrator cannot promote users to Owner.
+Roles use the existing `public.roles` and `public.user_roles` tables: `Owner` (Super Admin / Owner), `Administrator` (Admin Perpustakaan), `Librarian` (Petugas), and `Member` (Anggota). New accounts receive `Administrator`; no migration assigns `Owner` automatically. The `current_user_role()` RPC uses `auth.uid()`, returns `NULL` when no role is assigned, and is granted to authenticated users only. Role-management RPCs are revoked from `authenticated` and callable only by `service_role`. Settings no longer exposes role management; an operator changes roles in the Supabase SQL Editor.
 
 To establish the first Owner, a trusted project operator must explicitly promote the intended, verified account once in the Supabase SQL Editor after applying migrations. Replace the UUID with that account's Auth user ID:
 ```sql
@@ -123,7 +123,7 @@ INSERT INTO public.user_roles (user_id, role_id)
 SELECT 'AUTH_USER_UUID', id FROM public.roles WHERE name = 'Owner'
 ON CONFLICT (user_id, role_id) DO NOTHING;
 ```
-This is intentionally not performed by signup or migration. After the first Owner is established, role changes should go through the Settings role manager.
+This is intentionally not performed by signup or migration. After the first Owner is established, role changes must be run by an operator in the Supabase SQL Editor.
 
 The profile and role-assignment RLS policies allow authenticated users to read their own profile and role only; profile updates are limited to name, phone, and avatar. The book catalog is private by `owner_id`; row access and the atomic add/edit RPCs enforce ownership in the database, not just in the UI. Each signed-in user can scan and manage their own books. Existing catalog rows are assigned to the earliest Administrator role assignment when the private-catalog migration runs; other users' catalogs start empty. If existing rows are present but no Administrator role assignment exists, the migration stops and requires one to be created before retrying. Email verification delivery, SMTP credentials, OAuth secrets, and hosted redirect allowlists are Supabase/provider settings and must be configured outside this repository.
 
@@ -134,7 +134,7 @@ The email sender address and Resend SMTP API key are configured only in **Supaba
 2. Click the confirmation link, sign in with that email/password, and verify the app displays **Login berhasil** and opens the account's own bookshelf.
 3. Use a separate Google test account and choose **Lanjutkan dengan Google**. Confirm that the Supabase callback returns to the app with a session and that no extra email-verification-code prompt appears.
 4. Sign in as two different users. Add a book to the first user's catalog, sign out, then verify the second user's bookshelf and archived list do not show it. Add the same ISBN to the second account to verify ISBN uniqueness is per user.
-5. In Settings as an administrator, inspect the account list and pending access requests. Assign a test account a role, verify its access updates after reload, and confirm a non-Owner cannot assign the Owner role.
+5. Verify a signed-in account can read its own role and that direct calls to `set_library_user_role`, `list_library_role_assignments`, and `list_library_access_requests` are rejected for authenticated users.
 
 ---
 
@@ -202,7 +202,7 @@ Before creating a release:
    - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: password for that key (empty when generated with `--ci` and no `-p`).
    - `SUPABASE_FUNCTIONS_URL`: Supabase functions base URL (`https://<project-ref>.supabase.co/functions/v1`).
    - `UPDATE_PUSH_SECRET`: shared secret for the `send-update-push` Edge Function (any long random string).
-5. Set build/env values for Web Push: `VITE_VAPID_PUBLIC_KEY` (Vercel + CI, public half of `npx web-push generate-vapid-keys`) and Supabase secrets `UPDATE_PUSH_SECRET`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` via `npx supabase secrets set` (same key pair).
+5. Set build/env values for Web Push and the web updater: `VITE_VAPID_PUBLIC_KEY` (Vercel + CI, public half of `npx web-push generate-vapid-keys`) and `VITE_UPDATE_MANIFEST_URL` (optional when `APK_STORAGE_BUCKET` is set, otherwise the full URL to `latest.json`). Set Supabase secrets `UPDATE_PUSH_SECRET`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` via `npx supabase secrets set` (same key pair). Vercel build sets `VITE_APP_VERSION_CODE` from the release tag automatically.
 6. Push a version tag such as `v1.0.1`. `android-release.yml` uploads `MeelieFont-v1.0.1.apk`, verifies it, signs and publishes `latest.json`, notifies Android devices (FCM) and web/iOS subscribers (`send-update-push`); `desktop-release.yml` builds Windows/macOS, uploads them to `gs://<bucket>/desktop/`, and publishes the desktop updater manifest last.
 
 The app asks Android for notification permission and subscribes to the `meeliefont-updates` FCM topic. Users must allow notifications and permit APK installation from their browser. Android does not allow silent APK installation. A device currently running a USB-installed debug APK may need that build uninstalled before the first release-signed APK can be installed; later updates work over the same signing key. The Android package ID is intentionally unchanged so installed copies remain eligible for in-place updates.
