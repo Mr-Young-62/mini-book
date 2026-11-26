@@ -1,8 +1,8 @@
 import { getErrorMessage } from '../lib/errorMessage';
 
 const APP_ID = 'org.readowl.library';
-const HOST_ALLOWLIST = new Set(['storage.googleapis.com']);
-const APK_PATH_RE = /^\/[a-z0-9._-]+\/MeelieFont-v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\.apk$/i;
+const HOST_ALLOWLIST = new Set(['storage.googleapis.com', 'github.com']);
+const APK_PATH_RE = /^(\/[a-z0-9._-]+\/MeelieFont-v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\.apk|\/[^/]+\/[^/]+\/releases\/download\/v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\/MeelieFont-v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\.apk)$/i;
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_APK_BYTES = 500 * 1024 * 1024;

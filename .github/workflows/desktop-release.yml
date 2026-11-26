@@ -17,7 +17,24 @@ defaults:
     shell: bash
 
 jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      gcs: ${{ steps.flags.outputs.gcs }}
+      signing: ${{ steps.flags.outputs.signing }}
+    steps:
+      - id: flags
+        env:
+          APK_STORAGE_BUCKET: ${{ secrets.APK_STORAGE_BUCKET }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          echo "gcs=$([ -n "$APK_STORAGE_BUCKET" ] && [ -n "$FIREBASE_SERVICE_ACCOUNT" ] && [ -n "$FIREBASE_PROJECT_ID" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "signing=$([ -n "$TAURI_SIGNING_PRIVATE_KEY" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: preflight
     strategy:
       fail-fast: false
       matrix:
@@ -36,35 +53,48 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Prepare desktop build (version + updater endpoint)
+      - name: Prepare desktop build
+        if: needs.preflight.outputs.signing == 'true'
         env:
           APK_STORAGE_BUCKET: ${{ secrets.APK_STORAGE_BUCKET }}
+          GCS: ${{ needs.preflight.outputs.gcs }}
+        shell: bash
         run: |
-          test -n "$APK_STORAGE_BUCKET" || (echo "Missing APK_STORAGE_BUCKET secret" && exit 1)
-          node scripts/prepare-desktop-build.mjs \
-            --tag "$GITHUB_REF_NAME" \
-            --endpoint "https://storage.googleapis.com/${APK_STORAGE_BUCKET}/desktop/latest.json"
+          if [ "$GCS" = "true" ]; then
+            ENDPOINT="https://storage.googleapis.com/${APK_STORAGE_BUCKET}/desktop/latest.json"
+          else
+            ENDPOINT="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/desktop-latest.json"
+          fi
+          node scripts/prepare-desktop-build.mjs --tag "$GITHUB_REF_NAME" --endpoint "$ENDPOINT"
 
-      - name: Build signed desktop app
+      - name: Prepare desktop build without updater
+        if: needs.preflight.outputs.signing != 'true'
+        run: node scripts/prepare-desktop-build.mjs --tag "$GITHUB_REF_NAME" --updater false
+
+      - name: Build desktop app
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          test -n "$TAURI_SIGNING_PRIVATE_KEY" || (echo "Missing TAURI_SIGNING_PRIVATE_KEY secret" && exit 1)
           export VITE_APP_VERSION="${GITHUB_REF_NAME#v}"
           export VITE_APP_VERSION_CODE="$(node scripts/version-utils.mjs "$GITHUB_REF_NAME")"
           echo "Desktop bundle version: ${VITE_APP_VERSION} (versionCode ${VITE_APP_VERSION_CODE})"
           npx tauri build
 
       - name: Stage updater artifacts
+        env:
+          SIGNING: ${{ needs.preflight.outputs.signing }}
+        shell: bash
         run: |
           mkdir -p upload
           find src-tauri/target -type f -path '*/bundle/*' -exec cp {} upload/ \;
           ls -la upload/
           artifacts="$(find upload -type f \( -name '*.nsis.zip' -o -name '*.app.tar.gz' \) | wc -l)"
-          sigs="$(find upload -type f -name '*.sig' | wc -l)"
           test "$artifacts" -ge 1 || (echo "No updater artifact staged" && exit 1)
-          test "$sigs" -ge "$artifacts" || (echo "Missing updater signatures ($artifacts artifacts vs $sigs sigs)" && exit 1)
+          if [ "$SIGNING" = "true" ]; then
+            sigs="$(find upload -type f -name '*.sig' | wc -l)"
+            test "$sigs" -ge "$artifacts" || (echo "Missing updater signatures ($artifacts artifacts vs $sigs sigs)" && exit 1)
+          fi
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -74,7 +104,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: build
+    needs: [preflight, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -93,11 +123,13 @@ jobs:
           path: artifacts
 
       - name: Authenticate to Google Cloud
+        if: needs.preflight.outputs.gcs == 'true'
         uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
 
       - name: Set up Google Cloud CLI
+        if: needs.preflight.outputs.gcs == 'true'
         uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f # v2
         with:
           project_id: ${{ secrets.FIREBASE_PROJECT_ID }}
@@ -105,24 +137,29 @@ jobs:
       - name: Upload desktop artifacts and publish updater manifest
         env:
           APK_STORAGE_BUCKET: ${{ secrets.APK_STORAGE_BUCKET }}
+          GCS: ${{ needs.preflight.outputs.gcs }}
+          SIGNING: ${{ needs.preflight.outputs.signing }}
         run: |
-          test -n "$APK_STORAGE_BUCKET" || (echo "Missing APK_STORAGE_BUCKET secret" && exit 1)
           VERSION="${GITHUB_REF_NAME#v}"
-          BASE_URL="https://storage.googleapis.com/${APK_STORAGE_BUCKET}/desktop"
-
-          # Golden rule: every artifact is uploaded and verified BEFORE the manifest
-          # it references is published (same ordering rule as the APK manifest).
-          while IFS= read -r file; do
-            name="$(basename "$file")"
-            gcloud storage cp --cache-control="public,max-age=31536000,immutable" \
-              "$file" "gs://${APK_STORAGE_BUCKET}/desktop/${name}"
-            local_size="$(stat -c%s "$file")"
-            remote_size="$(curl -fsSI --max-time 30 "${BASE_URL}/${name}" | tr -d '\r' | awk 'tolower($1)=="content-length:" {print $2}' | tail -n1)"
-            test -n "$remote_size" || (echo "Upload verification failed: no content-length for ${name}" && exit 1)
-            test "$remote_size" = "$local_size" || (echo "Upload verification failed for ${name}: remote=${remote_size} local=${local_size}" && exit 1)
-            echo "Verified ${name} (${local_size} bytes)"
-          done < <(find artifacts -type f | sort)
-
+          if [ "$GCS" = "true" ]; then
+            BASE_URL="https://storage.googleapis.com/${APK_STORAGE_BUCKET}/desktop"
+          else
+            BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
+          fi
+          if [ "$GCS" = "true" ]; then
+            while IFS= read -r file; do
+              name="$(basename "$file")"
+              gcloud storage cp --cache-control="public,max-age=31536000,immutable" \
+                "$file" "gs://${APK_STORAGE_BUCKET}/desktop/${name}"
+              local_size="$(stat -c%s "$file")"
+              remote_size="$(curl -fsSI --max-time 30 "${BASE_URL}/${name}" | tr -d '\r' | awk 'tolower($1)=="content-length:" {print $2}' | tail -n1)"
+              test -n "$remote_size" || (echo "Upload verification failed: no content-length for ${name}" && exit 1)
+              test "$remote_size" = "$local_size" || (echo "Upload verification failed for ${name}: remote=${remote_size} local=${local_size}" && exit 1)
+              echo "Verified ${name} (${local_size} bytes)"
+            done < <(find artifacts -type f | sort)
+          else
+            echo "GCS bucket not configured; desktop artifacts will be attached to the GitHub Release only."
+          fi
           mkdir -p release-assets
           find artifacts -type f \( -name '*.exe' -o -name '*.msi' -o -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.nsis.zip' -o -name '*.sig' \) -exec cp {} release-assets/ \;
           test "$(find release-assets -type f | wc -l)" -gt 0 || (echo "No desktop release assets staged" && exit 1)
@@ -130,25 +167,26 @@ jobs:
             cd release-assets
             find . -maxdepth 1 -type f ! -name 'SHA256SUMS' -printf '%f\n' | sort | xargs sha256sum > SHA256SUMS
           )
-
-          # Best-effort changelog from the tag commit.
           CHANGES_FILE="$(mktemp)"
           git log --no-merges --pretty='- %s' -n 30 > "$CHANGES_FILE" || true
-
-          node scripts/generate-desktop-manifest.mjs \
-            --version "$VERSION" \
-            --in artifacts \
-            --base-url "$BASE_URL" \
-            --notes-file "$CHANGES_FILE" \
-            --out desktop-latest.json
-
-          echo "Manifest to publish:"
-          cat desktop-latest.json
-
-          gcloud storage cp --cache-control="public,max-age=60,must-revalidate" \
-            desktop-latest.json \
-            "gs://${APK_STORAGE_BUCKET}/desktop/latest.json"
-          echo "Published ${BASE_URL}/latest.json"
+          if [ "$SIGNING" = "true" ]; then
+            node scripts/generate-desktop-manifest.mjs \
+              --version "$VERSION" \
+              --in artifacts \
+              --base-url "$BASE_URL" \
+              --notes-file "$CHANGES_FILE" \
+              --out desktop-latest.json
+            cat desktop-latest.json
+            cp desktop-latest.json release-assets/desktop-latest.json
+            if [ "$GCS" = "true" ]; then
+              gcloud storage cp --cache-control="public,max-age=60,must-revalidate" \
+                desktop-latest.json \
+                "gs://${APK_STORAGE_BUCKET}/desktop/latest.json"
+              echo "Published ${BASE_URL}/latest.json"
+            fi
+          else
+            echo "Tauri signing key not configured; desktop updater manifest will not be published."
+          fi
 
       - name: Publish desktop assets to GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2

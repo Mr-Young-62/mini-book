@@ -15,7 +15,22 @@ permissions:
   contents: read
 
 jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.flags.outputs.ready }}
+    steps:
+      - id: flags
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          echo "ready=$([ -n "$VERCEL_TOKEN" ] && [ -n "$VERCEL_ORG_ID" ] && [ -n "$VERCEL_PROJECT_ID" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
   deploy:
+    needs: preflight
+    if: needs.preflight.outputs.ready == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
@@ -67,7 +82,7 @@ jobs:
           if [ -n "$APK_STORAGE_BUCKET" ]; then
             export VITE_UPDATE_MANIFEST_URL="https://storage.googleapis.com/${APK_STORAGE_BUCKET}/latest.json"
           elif [ -z "$VITE_UPDATE_MANIFEST_URL" ]; then
-            echo "Missing APK_STORAGE_BUCKET and VITE_UPDATE_MANIFEST_URL" && exit 1
+            export VITE_UPDATE_MANIFEST_URL="https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/latest.json"
           fi
           npx vercel build --prod --token="$VERCEL_TOKEN"
 

@@ -30,8 +30,8 @@ const APP_ID = 'org.readowl.library';
 const DEFAULT_SCHEMA_VERSION = 1;
 const MAX_APK_BYTES = 500 * 1024 * 1024; // sanity cap (500 MB)
 const HEX64_RE = /^[0-9a-f]{64}$/;
-const HOST_ALLOWLIST = new Set(['storage.googleapis.com']);
-const APK_PATH_RE = /^\/[a-z0-9._-]+\/MeelieFont-v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\.apk$/i;
+const HOST_ALLOWLIST = new Set(['storage.googleapis.com', 'github.com']);
+const APK_PATH_RE = /^(\/[a-z0-9._-]+\/MeelieFont-v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\.apk|\/[^/]+\/[^/]+\/releases\/download\/v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\/MeelieFont-v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\.apk)$/i;
 
 function fail(message) {
   // Printed once by the top-level catch; only set the exit code here.
@@ -114,7 +114,7 @@ function buildDownloadUrl(args, tag) {
       fail(`--url host "${parsed.hostname}" is not in the allowlist (${[...HOST_ALLOWLIST].join(', ')}).`);
     }
     if (!APK_PATH_RE.test(parsed.pathname)) {
-      fail(`--url path "${parsed.pathname}" does not match the required APK pattern /<bucket>/MeelieFont-vX.Y.Z.apk`);
+      fail(`--url path "${parsed.pathname}" does not match the required APK pattern for GCS or GitHub Releases`);
     }
     return args.url;
   }

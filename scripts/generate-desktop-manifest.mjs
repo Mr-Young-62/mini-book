@@ -69,8 +69,12 @@ async function main() {
   }
   if (!/^\d+\.\d+\.\d+$/.test(args.version)) fail('--version must be MAJOR.MINOR.PATCH.');
   const baseUrl = new URL(args['base-url']);
-  if (baseUrl.protocol !== 'https:' || baseUrl.hostname !== 'storage.googleapis.com') {
-    fail('--base-url must be an https://storage.googleapis.com/... path.');
+  const isGcs = baseUrl.protocol === 'https:' && baseUrl.hostname === 'storage.googleapis.com';
+  const isGitHub = baseUrl.protocol === 'https:'
+    && baseUrl.hostname === 'github.com'
+    && /^\/[^/]+\/[^/]+\/releases\/download\/v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?$/.test(baseUrl.pathname);
+  if (!isGcs && !isGitHub) {
+    fail('--base-url must be an https://storage.googleapis.com/... or GitHub release download URL.');
   }
 
   const files = await walk(args.in);

@@ -55,11 +55,13 @@ describe('updateService manifest validation', () => {
 });
 
 describe('updateService download URL allowlist', () => {
-  it('allows only https GCS APK paths', () => {
+  it('allows https GCS and GitHub release APK paths', () => {
     expect(isAllowedDownloadUrl(baseManifest.downloadUrl)).toBe(true);
+    expect(isAllowedDownloadUrl('https://github.com/Mr-Young-62/mini-book/releases/download/v1.2.3/MeelieFont-v1.2.3.apk')).toBe(true);
     expect(isAllowedDownloadUrl('http://storage.googleapis.com/bucket/MeelieFont-v1.2.3.apk')).toBe(false);
     expect(isAllowedDownloadUrl('https://evil.example/bucket/MeelieFont-v1.2.3.apk')).toBe(false);
     expect(isAllowedDownloadUrl('https://storage.googleapis.com/bucket/other.apk')).toBe(false);
+    expect(isAllowedDownloadUrl('https://github.com/Mr-Young-62/mini-book/releases/download/v1.2.3/other.apk')).toBe(false);
   });
 });
 
