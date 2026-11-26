@@ -86,7 +86,7 @@ jobs:
           set -o pipefail
           npx tauri build 2>&1 | tee tauri-build.log
           if grep -Fq 'does not match the public key' tauri-build.log; then
-            echo "Tauri updater signing key does not match src-tauri/tauri.conf.json plugins.updater.pubkey. Refusing to publish unusable updater artifacts."
+            echo "::error::Tauri updater private key does not match src-tauri/tauri.conf.json plugins.updater.pubkey. Refusing to publish unusable updater artifacts."
             exit 1
           fi
 

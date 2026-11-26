@@ -101,6 +101,7 @@ jobs:
           fi
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/meeliefont-release.jks
           test -s android/app/meeliefont-release.jks || (echo "::error::ANDROID_KEYSTORE_BASE64 did not decode to a non-empty keystore file." && exit 1)
+          keytool -list -keystore android/app/meeliefont-release.jks -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" >/dev/null || (echo "::error::Android keystore/password/alias validation failed." && exit 1)
           npx cap sync android
 
       - name: Authenticate to Google Cloud
