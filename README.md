@@ -192,20 +192,20 @@ Before creating a release:
 3. Create and securely back up a release signing key. Do not commit the keystore or share its passwords.
 4. Add these repository **Actions secrets**:
    - `GOOGLE_SERVICES_JSON_BASE64`: Base64-encoded `google-services.json`.
-   - `ANDROID_KEYSTORE_BASE64`: Base64-encoded release keystore.
-   - `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`.
+    - `ANDROID_KEYSTORE_BASE64`: Base64-encoded release keystore. This secret is required for Android releases.
+    - `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`. These secrets are required for Android releases.
    - `FIREBASE_SERVICE_ACCOUNT`: Firebase service-account JSON with permission to send FCM messages.
    - `FIREBASE_PROJECT_ID`: Firebase project ID.
    - `APK_STORAGE_BUCKET`: the dedicated public APK bucket name.
    - `UPDATER_SIGNING_PRIVATE_KEY`: raw 32-byte Ed25519 seed, base64url encoded. Generate with `node scripts/sign-manifest.mjs --gen-key --out-key private.b64 --out-pub public.b64`, store the private value as the secret, and pin the printed public key in `src/services/updateService.ts` (`UPDATER_PUBLIC_KEY_B64`).
-   - `TAURI_SIGNING_PRIVATE_KEY`: desktop updater minisign private key (base64 content of the file written by `npx tauri signer generate -w <file> --ci`). Losing it means installed desktop apps can no longer verify updates — back it up outside the repo; never commit it.
+    - `TAURI_SIGNING_PRIVATE_KEY`: desktop updater minisign private key (base64 content of the file written by `npx tauri signer generate -w <file> --ci`). Losing it means installed desktop apps can no longer verify updates, so back it up outside the repo; never commit it.
    - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: password for that key (empty when generated with `--ci` and no `-p`).
    - `SUPABASE_FUNCTIONS_URL`: Supabase functions base URL (`https://<project-ref>.supabase.co/functions/v1`).
    - `UPDATE_PUSH_SECRET`: shared secret for the `send-update-push` Edge Function (any long random string).
 5. Set build/env values for Web Push and the web updater: `VITE_VAPID_PUBLIC_KEY` (Vercel + CI, public half of `npx web-push generate-vapid-keys`) and `VITE_UPDATE_MANIFEST_URL` (optional when `APK_STORAGE_BUCKET` is set, otherwise the full URL to `latest.json`). Set Supabase secrets `UPDATE_PUSH_SECRET`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` via `npx supabase secrets set` (same key pair). Vercel build sets `VITE_APP_VERSION_CODE` from the release tag automatically.
 6. Push a version tag such as `v1.0.1`. `android-release.yml` uploads `MeelieFont-v1.0.1.apk`, verifies it, signs and publishes `latest.json`, notifies Android devices (FCM) and web/iOS subscribers (`send-update-push`); `desktop-release.yml` builds Windows/macOS, uploads them to `gs://<bucket>/desktop/`, and publishes the desktop updater manifest last.
 
-When GCS, Vercel, signing, or notification secrets are absent, the workflows skip those integrations and attach the available artifacts plus the update manifests directly to the GitHub Release. In that mode, in-app updates and notification delivery stay disabled until the missing public URLs and secrets are configured. An unsigned `latest.json` is attached for manual inspection but the app rejects it.
+When GCS, Vercel, or notification secrets are absent, the workflows skip those integrations and attach the available artifacts plus the update manifests directly to the GitHub Release. Android release signing secrets are mandatory, so an unsigned APK is never published. In that fallback mode, in-app updates and notification delivery stay disabled until the missing public URLs and secrets are configured. An unsigned `latest.json` is attached for manual inspection but the app rejects it.
 
 The app asks Android for notification permission and subscribes to the `meeliefont-updates` FCM topic. Users must allow notifications and permit APK installation from their browser. Android does not allow silent APK installation. A device currently running a USB-installed debug APK may need that build uninstalled before the first release-signed APK can be installed; later updates work over the same signing key. The Android package ID is intentionally unchanged so installed copies remain eligible for in-place updates.
 
