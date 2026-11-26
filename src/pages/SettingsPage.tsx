@@ -249,13 +249,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   };
 
   return (
-    <div className="max-w-4xl space-y-6">
-      {/* Header */}
-      <div className="border-b border-[#EAE5DE] pb-4">
-        <h1 className="text-2xl font-bold tracking-tight text-[#2C221E] font-sans">
+    <div className="max-w-4xl space-y-7 pb-6">
+      <div className="border-b border-[#ECEEF2] pb-5">
+        <h1 className="text-2xl font-extrabold tracking-tight text-[#14181F] font-sans sm:text-3xl">
           Library & System Settings
         </h1>
-        <p className="text-xs text-[#7E6F64]">
+        <p className="mt-1.5 text-xs leading-relaxed text-[#6E737D]">
           Configure your Supabase database connection and library metadata.
         </p>
       </div>
@@ -275,12 +274,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       )}
 
       {canManageRoles && (
-        <section className="space-y-4 rounded-xl border border-[#E8E2D9] bg-white p-5 shadow-2xs">
-          <div className="flex items-center gap-2 border-b border-[#F0ECE4] pb-3">
-            <Users className="h-4 w-4 text-[#c62828]" />
+        <section className="space-y-4 rounded-xl border border-[#ECEEF2] bg-white p-5 shadow-2xs">
+          <div className="flex items-center gap-2 border-b border-[#ECEEF2] pb-3">
+            <Users className="h-4 w-4 text-[#18362F]" />
             <div>
-              <h2 className="text-sm font-bold text-[#2C221E]">Manajemen Role & Permintaan Akses</h2>
-              <p className="text-[11px] text-[#7E6F64]">Role hanya dapat diubah melalui RPC yang memvalidasi kewenangan administrator.</p>
+              <h2 className="text-sm font-bold text-[#14181F]">Manajemen Role & Permintaan Akses</h2>
+              <p className="text-[11px] text-[#6E737D]">Role hanya dapat diubah melalui RPC yang memvalidasi kewenangan administrator.</p>
             </div>
           </div>
 
@@ -289,12 +288,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
           {accessRequests.length > 0 && (
             <div className="space-y-2">
-              <h3 className="text-xs font-bold uppercase tracking-wide text-[#7E6F64]">Permintaan akses</h3>
+              <h3 className="text-xs font-bold uppercase tracking-wide text-[#6E737D]">Permintaan akses</h3>
               {accessRequests.map((request) => (
-                <div key={request.user_id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#EAE5DE] bg-[#FAF8F5] p-3">
+                <div key={request.user_id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#ECEEF2] bg-[#F5F6F8] p-3">
                   <div>
-                    <p className="text-xs font-semibold text-[#2C221E]">{request.full_name}</p>
-                    <p className="text-[11px] text-[#7E6F64]">{request.email} · {new Date(request.requested_at).toLocaleString()}</p>
+                    <p className="text-xs font-semibold text-[#14181F]">{request.full_name}</p>
+                    <p className="text-[11px] text-[#6E737D]">{request.email} · {new Date(request.requested_at).toLocaleString()}</p>
                   </div>
                   <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-semibold text-amber-900">{request.status}</span>
                 </div>
@@ -303,18 +302,18 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           )}
 
           <div className="space-y-2">
-            <h3 className="text-xs font-bold uppercase tracking-wide text-[#7E6F64]">Akun dan role</h3>
+            <h3 className="text-xs font-bold uppercase tracking-wide text-[#6E737D]">Akun dan role</h3>
             {roleLoading ? (
-              <p className="text-xs text-[#7E6F64]">Memuat daftar akun...</p>
+              <p className="text-xs text-[#6E737D]">Memuat daftar akun...</p>
             ) : roleAssignments.length === 0 ? (
-              <p className="text-xs text-[#7E6F64]">Belum ada profil pengguna.</p>
+              <p className="text-xs text-[#6E737D]">Belum ada profil pengguna.</p>
             ) : roleAssignments.map((assignment) => {
               const selectedRole = roleSelections[assignment.user_id] || assignment.role_name || 'Member';
               return (
-                <div key={assignment.user_id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#EAE5DE] p-3">
+                <div key={assignment.user_id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#ECEEF2] p-3">
                   <div className="min-w-0">
-                    <p className="truncate text-xs font-semibold text-[#2C221E]">{assignment.full_name}</p>
-                    <p className="truncate text-[11px] text-[#7E6F64]">{assignment.email}</p>
+                    <p className="truncate text-xs font-semibold text-[#14181F]">{assignment.full_name}</p>
+                    <p className="truncate text-[11px] text-[#6E737D]">{assignment.email}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <select
@@ -324,7 +323,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                         ...current,
                         [assignment.user_id]: event.target.value as UserRole,
                       }))}
-                      className="rounded-lg border border-[#D4CDC3] bg-white px-2 py-1.5 text-xs text-[#2C221E]"
+                      className="rounded-lg border border-[#E5E7EB] bg-white px-2 py-1.5 text-xs text-[#14181F]"
                     >
                       {(['Member', 'Librarian', 'Administrator'] as UserRole[]).map((role) => (
                         <option key={role} value={role}>{roleLabel[role]}</option>
@@ -335,7 +334,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                       type="button"
                       onClick={() => void handleRoleChange(assignment.user_id)}
                       disabled={roleBusyUserId === assignment.user_id || selectedRole === assignment.role_name}
-                      className="rounded-lg bg-[#c62828] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#a61f1f] disabled:opacity-50"
+                      className="rounded-lg bg-[#18362F] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#112822] disabled:opacity-50"
                     >
                       {roleBusyUserId === assignment.user_id ? 'Menyimpan...' : 'Simpan'}
                     </button>
@@ -351,11 +350,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         {/* ================================================================= */}
         {/* 1. SUPABASE DATABASE CONFIGURATION */}
         {/* ================================================================= */}
-        <div className="bg-white border border-[#E8E2D9] rounded-xl p-5 shadow-2xs space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-[#F0ECE4]">
+        <div className="bg-white border border-[#ECEEF2] rounded-xl p-5 shadow-2xs space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-[#ECEEF2]">
             <div className="flex items-center gap-2">
-              <Database className="w-4 h-4 text-[#c62828]" />
-              <h3 className="text-sm font-bold text-[#2C221E]">
+              <Database className="w-4 h-4 text-[#18362F]" />
+              <h3 className="text-sm font-bold text-[#14181F]">
                 Supabase Backend Configuration
               </h3>
             </div>
@@ -370,13 +369,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             </span>
           </div>
 
-          <p className="text-xs text-[#7E6F64] leading-relaxed">
+          <p className="text-xs text-[#6E737D] leading-relaxed">
             MeelieFont uses Supabase PostgreSQL, Storage, Auth, and Edge Functions. When live credentials are supplied below, the client persists directly to your cloud Supabase database.
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
             <div>
-              <label className="block text-[11px] font-medium text-[#5A4D44] mb-1">
+              <label className="block text-[11px] font-medium text-[#4B5563] mb-1">
                 Supabase URL (VITE_SUPABASE_URL)
               </label>
               <input
@@ -384,12 +383,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 value={supabaseUrl}
                 onChange={(e) => setSupabaseUrl(e.target.value)}
                 placeholder="https://xyzproject.supabase.co"
-                className="w-full px-3 py-2 bg-[#FAF8F5] border border-[#E5E0D8] rounded-lg text-xs font-mono"
+                className="w-full px-3 py-2 bg-[#F5F6F8] border border-[#E5E7EB] rounded-lg text-xs font-mono"
               />
             </div>
 
             <div>
-              <label className="block text-[11px] font-medium text-[#5A4D44] mb-1">
+              <label className="block text-[11px] font-medium text-[#4B5563] mb-1">
                 Supabase Publishable / Anon Key
               </label>
               <input
@@ -397,20 +396,20 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 value={supabaseKey}
                 onChange={(e) => setSupabaseKey(e.target.value)}
                 placeholder="sbp_... or eyJhbGciOi..."
-                className="w-full px-3 py-2 bg-[#FAF8F5] border border-[#E5E0D8] rounded-lg text-xs font-mono"
+                className="w-full px-3 py-2 bg-[#F5F6F8] border border-[#E5E7EB] rounded-lg text-xs font-mono"
               />
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#F0ECE4] text-[11px]">
-            <div className="text-[#7E6F64]">
-              Migrations stored in <code className="font-mono text-[#2C221E]">supabase/migrations/</code>
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#ECEEF2] text-[11px]">
+            <div className="text-[#6E737D]">
+              Migrations stored in <code className="font-mono text-[#14181F]">supabase/migrations/</code>
             </div>
             {isSupabaseConfigured && (
               <button
                 type="button"
                 onClick={handleResetToSandbox}
-                className="text-[#7E6F64] hover:text-rose-600 font-medium"
+                className="text-[#6E737D] hover:text-rose-600 font-medium"
               >
                 Disconnect & Use Local Sandbox
               </button>
@@ -421,15 +420,15 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         {/* ================================================================= */}
         {/* 2. LIBRARY INFORMATION */}
         {/* ================================================================= */}
-        <div className="bg-white border border-[#E8E2D9] rounded-xl p-5 shadow-2xs space-y-4">
-          <div className="flex items-center gap-2 pb-3 border-b border-[#F0ECE4]">
-            <Building className="w-4 h-4 text-[#c62828]" />
-            <h3 className="text-sm font-bold text-[#2C221E]">Library Profile</h3>
+        <div className="bg-white border border-[#ECEEF2] rounded-xl p-5 shadow-2xs space-y-4">
+          <div className="flex items-center gap-2 pb-3 border-b border-[#ECEEF2]">
+            <Building className="w-4 h-4 text-[#18362F]" />
+            <h3 className="text-sm font-bold text-[#14181F]">Library Profile</h3>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
             <div>
-              <label className="block text-[11px] font-medium text-[#5A4D44] mb-1">
+              <label className="block text-[11px] font-medium text-[#4B5563] mb-1">
                 Library Name
               </label>
               <input
@@ -441,13 +440,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                     library_info: { ...settings.library_info, name: e.target.value },
                   })
                 }
-                className="w-full px-3 py-2 bg-[#FAF8F5] border border-[#E5E0D8] rounded-lg text-xs font-medium"
+                className="w-full px-3 py-2 bg-[#F5F6F8] border border-[#E5E7EB] rounded-lg text-xs font-medium"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-[11px] font-medium text-[#5A4D44] mb-1">
+              <label className="block text-[11px] font-medium text-[#4B5563] mb-1">
                 Library Branch Code
               </label>
               <input
@@ -459,13 +458,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                     library_info: { ...settings.library_info, code: e.target.value },
                   })
                 }
-                className="w-full px-3 py-2 bg-[#FAF8F5] border border-[#E5E0D8] rounded-lg text-xs font-mono"
+                className="w-full px-3 py-2 bg-[#F5F6F8] border border-[#E5E7EB] rounded-lg text-xs font-mono"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-[11px] font-medium text-[#5A4D44] mb-1">
+              <label className="block text-[11px] font-medium text-[#4B5563] mb-1">
                 Physical Address
               </label>
               <input
@@ -477,12 +476,12 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                     library_info: { ...settings.library_info, address: e.target.value },
                   })
                 }
-                className="w-full px-3 py-2 bg-[#FAF8F5] border border-[#E5E0D8] rounded-lg text-xs"
+                className="w-full px-3 py-2 bg-[#F5F6F8] border border-[#E5E7EB] rounded-lg text-xs"
               />
             </div>
 
             <div>
-              <label className="block text-[11px] font-medium text-[#5A4D44] mb-1">
+              <label className="block text-[11px] font-medium text-[#4B5563] mb-1">
                 Contact Email
               </label>
               <input
@@ -494,7 +493,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                     library_info: { ...settings.library_info, email: e.target.value },
                   })
                 }
-                className="w-full px-3 py-2 bg-[#FAF8F5] border border-[#E5E0D8] rounded-lg text-xs"
+                className="w-full px-3 py-2 bg-[#F5F6F8] border border-[#E5E7EB] rounded-lg text-xs"
               />
             </div>
           </div>
@@ -503,20 +502,20 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         {/* ================================================================= */}
         {/* 3. APPLICATION UPDATES */}
         {/* ================================================================= */}
-        <div className="bg-white border border-[#E8E2D9] rounded-xl p-5 shadow-2xs space-y-3">
-          <div className="flex items-center gap-2 pb-3 border-b border-[#F0ECE4]">
-            <RefreshCw className="w-4 h-4 text-[#c62828]" />
-            <h3 className="text-sm font-bold text-[#2C221E]">Application Updates</h3>
+        <div className="bg-white border border-[#ECEEF2] rounded-xl p-5 shadow-2xs space-y-3">
+          <div className="flex items-center gap-2 pb-3 border-b border-[#ECEEF2]">
+            <RefreshCw className="w-4 h-4 text-[#18362F]" />
+            <h3 className="text-sm font-bold text-[#14181F]">Application Updates</h3>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-mono">
             <div>
-              <span className="text-[10px] uppercase text-[#7E6F64]">Versi terpasang</span>
-              <div className="text-[#2C221E]">{updater.currentVersion} ({updater.currentVersionCode || 'local'})</div>
+              <span className="text-[10px] uppercase text-[#6E737D]">Versi terpasang</span>
+              <div className="text-[#14181F]">{updater.currentVersion} ({updater.currentVersionCode || 'local'})</div>
             </div>
             <div>
-              <span className="text-[10px] uppercase text-[#7E6F64]">Versi terbaru</span>
-              <div className="text-[#2C221E]">
+              <span className="text-[10px] uppercase text-[#6E737D]">Versi terbaru</span>
+              <div className="text-[#14181F]">
                 {updater.platform === 'desktop'
                   ? (updater.desktop.version || '-')
                   : (updater.manifest ? `${updater.manifest.version} (${updater.manifest.versionCode})` : '-')}
@@ -525,8 +524,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           </div>
 
           {updater.platform === 'desktop' && updater.desktop.available && updater.desktop.version && (
-            <div className="rounded-lg bg-[#FAF8F5] p-3 space-y-1 text-xs text-[#4A3E35]">
-              <div className="font-semibold text-[#2C221E]">Pembaruan v{updater.desktop.version} tersedia</div>
+            <div className="rounded-lg bg-[#F5F6F8] p-3 space-y-1 text-xs text-[#374151]">
+              <div className="font-semibold text-[#14181F]">Pembaruan v{updater.desktop.version} tersedia</div>
               {updater.desktop.notes && updater.desktop.notes.split('\n').map((line, index) => (
                 line.trim() ? <div key={`${index}-${line}`}>• {line.trim()}</div> : null
               ))}
@@ -540,8 +539,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           )}
 
           {updater.platform !== 'desktop' && updater.status === 'available' && updater.manifest && (
-            <div className="rounded-lg bg-[#FAF8F5] p-3 space-y-1 text-xs text-[#4A3E35]">
-              <div className="font-semibold text-[#2C221E]">Pembaruan v{updater.manifest.version} tersedia</div>
+            <div className="rounded-lg bg-[#F5F6F8] p-3 space-y-1 text-xs text-[#374151]">
+              <div className="font-semibold text-[#14181F]">Pembaruan v{updater.manifest.version} tersedia</div>
               {updater.manifest.changelog.map((entry, index) => (
                 <div key={`${index}-${entry}`}>• {entry}</div>
               ))}
@@ -554,7 +553,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             <p className="text-xs text-amber-700">Tidak dapat memeriksa pembaruan. Periksa koneksi internet.</p>
           )}
           {updater.platform !== 'desktop' && updater.status === 'disabled' && (
-            <p className="text-xs text-[#7E6F64]">
+            <p className="text-xs text-[#6E737D]">
               {updater.platform === 'android'
                 ? 'Pemeriksaan pembaruan hanya aktif pada build rilis Android.'
                 : 'Pemeriksaan pembaruan tersedia di build Android dan desktop.'}
@@ -565,7 +564,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             type="button"
             onClick={() => void updater.checkManually()}
             disabled={updater.checking}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[#D4CDC3] bg-[#FAF8F5] px-3 py-1.5 text-xs font-semibold text-[#2C221E] hover:bg-[#F0ECE4] disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-[#F5F6F8] px-3 py-1.5 text-xs font-semibold text-[#14181F] hover:bg-[#ECEEF2] disabled:opacity-50"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${updater.checking ? 'animate-spin' : ''}`} />
             {updater.checking ? 'Memeriksa...' : 'Periksa pembaruan'}
@@ -576,13 +575,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         {/* 4. UPDATE NOTIFICATIONS (Web Push / iOS PWA) */}
         {/* ================================================================= */}
         {pushSupported && (
-          <div className="bg-white border border-[#E8E2D9] rounded-xl p-5 shadow-2xs space-y-3">
-            <div className="flex items-center gap-2 pb-3 border-b border-[#F0ECE4]">
-              <BellRing className="w-4 h-4 text-[#c62828]" />
-              <h3 className="text-sm font-bold text-[#2C221E]">Notifikasi Update (Web / iOS)</h3>
+          <div className="bg-white border border-[#ECEEF2] rounded-xl p-5 shadow-2xs space-y-3">
+            <div className="flex items-center gap-2 pb-3 border-b border-[#ECEEF2]">
+              <BellRing className="w-4 h-4 text-[#18362F]" />
+              <h3 className="text-sm font-bold text-[#14181F]">Notifikasi Update (Web / iOS)</h3>
             </div>
 
-            <p className="text-xs text-[#7E6F64]">
+            <p className="text-xs text-[#6E737D]">
               Dapatkan notifikasi saat versi baru dirilis — langsung ke perangkat ini.
             </p>
             {iosBrowserHint && (
@@ -599,7 +598,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 {pushSubscribed ? (
                   <span className="text-emerald-700 font-semibold">Aktif</span>
                 ) : (
-                  <span className="text-[#7E6F64]">Nonaktif</span>
+                  <span className="text-[#6E737D]">Nonaktif</span>
                 )}
               </span>
               {pushSubscribed ? (
@@ -607,7 +606,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   type="button"
                   onClick={() => void handleDisablePush()}
                   disabled={pushBusy}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-[#D4CDC3] bg-[#FAF8F5] px-3 py-1.5 text-xs font-semibold text-[#2C221E] hover:bg-[#F0ECE4] disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-[#F5F6F8] px-3 py-1.5 text-xs font-semibold text-[#14181F] hover:bg-[#ECEEF2] disabled:opacity-50"
                 >
                   {pushBusy ? 'Memproses...' : 'Nonaktifkan notifikasi'}
                 </button>
@@ -616,7 +615,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   type="button"
                   onClick={() => void handleEnablePush()}
                   disabled={pushBusy}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#c62828] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#a61f1f] disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#18362F] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#112822] disabled:opacity-50"
                 >
                   <BellRing className="h-3.5 w-3.5" />
                   {pushBusy ? 'Mengaktifkan...' : 'Aktifkan notifikasi update'}
@@ -630,7 +629,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         <div className="flex items-center justify-between pt-2">
           <button
             type="submit"
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#c62828] hover:bg-[#a61f1f] text-white text-xs font-semibold rounded-lg shadow-2xs transition-colors"
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#18362F] hover:bg-[#112822] text-white text-xs font-semibold rounded-lg shadow-2xs transition-colors"
           >
             <Save className="w-4 h-4" />
             <span>Save Configuration</span>

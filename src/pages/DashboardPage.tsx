@@ -1,5 +1,19 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { BookOpen, ArrowRight, QrCode, Plus, Sparkles, Search, Clock3, BookMarked, Library } from 'lucide-react';
+import {
+  BookOpen,
+  ArrowRight,
+  QrCode,
+  Search,
+  Clock3,
+  BookMarked,
+  Library,
+  ChevronRight,
+  SlidersHorizontal,
+  Cpu,
+  Palette,
+  Briefcase,
+  Sparkles,
+} from 'lucide-react';
 import { LibraryService } from '../services/libraryService';
 import { ActivityLog, Book, UserRole } from '../types/library';
 import { formatIsbn } from '../services/isbnValidator';
@@ -10,13 +24,14 @@ interface DashboardPageProps {
   onNavigate: (tab: string) => void;
 }
 
-interface ShelfBook {
-  title: string;
-  author: string;
-  cover_url?: string;
-  isbn_13?: string;
-  id: string;
-}
+const getCategoryIcon = (name: string) => {
+  const lower = name.toLowerCase();
+  if (lower.includes('tech') || lower.includes('comp') || lower.includes('code')) return Cpu;
+  if (lower.includes('design') || lower.includes('art')) return Palette;
+  if (lower.includes('busi') || lower.includes('econ') || lower.includes('money')) return Briefcase;
+  if (lower.includes('fic') || lower.includes('novel') || lower.includes('lit')) return BookOpen;
+  return Sparkles;
+};
 
 const normalizeCoverUrl = (url?: string): string | undefined => {
   if (!url) return undefined;
@@ -31,8 +46,7 @@ const BookCover: React.FC<{
   title: string;
   author?: string;
   className?: string;
-  fit?: 'cover' | 'contain';
-}> = ({ coverUrl, title, author, className = '', fit = 'cover' }) => {
+}> = ({ coverUrl, title, author, className = '' }) => {
   const [src, setSrc] = useState<string | undefined>(normalizeCoverUrl(coverUrl));
   const [failed, setFailed] = useState(false);
 
@@ -43,12 +57,16 @@ const BookCover: React.FC<{
 
   if (!src || failed) {
     return (
-      <div className={`flex h-full w-full items-center justify-center bg-gradient-to-br from-[#EAE5DE] via-[#F7F3EE] to-[#D8C9B4] text-[#4F3D32] ${className}`}>
-        <div className="flex max-w-[80%] flex-col items-center justify-center text-center">
-          <BookOpen className="mb-2 h-6 w-6 text-[#8C7E72]" />
-          <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#8C7E72]">Cover</div>
-          <div className="mt-1 line-clamp-3 text-[10px] font-semibold leading-tight">{title || 'No cover'}</div>
-          {author && <div className="mt-1 text-[8px] text-[#7E6F64]">{author}</div>}
+      <div
+        className={`flex h-full w-full items-center justify-center bg-gradient-to-br from-[#EFECE4] via-[#F9F8F5] to-[#DDD7C5] p-3 text-[#14181F] ${className}`}
+      >
+        <div className="flex max-w-[85%] flex-col items-center justify-center text-center">
+          <BookOpen className="mb-2 h-6 w-6 text-[#6E737D]" />
+          <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#6E737D]">Book</div>
+          <div className="mt-1 line-clamp-3 text-[11px] font-bold leading-tight text-[#14181F]">
+            {title || 'No cover'}
+          </div>
+          {author && <div className="mt-1 line-clamp-1 text-[9px] text-[#6E737D]">{author}</div>}
         </div>
       </div>
     );
@@ -60,70 +78,11 @@ const BookCover: React.FC<{
       alt={title}
       referrerPolicy="no-referrer"
       loading="lazy"
-      className={`${className} h-full w-full ${fit === 'contain' ? 'object-contain' : 'object-cover'} ${failed ? 'hidden' : ''}`}
+      className={`h-full w-full object-cover ${className}`}
       onError={() => setFailed(true)}
     />
   );
 };
-
-const toShelfBook = (book: Book): ShelfBook => ({
-  id: book.id,
-  title: book.title,
-  author: book.authors?.[0]?.name || 'Unknown Author',
-  cover_url: book.cover_url,
-  isbn_13: book.isbn_13,
-});
-
-const ShelfSection: React.FC<{ title: string; books: ShelfBook[]; actionLabel?: string; onAction?: () => void }> = ({
-  title,
-  books,
-  actionLabel,
-  onAction,
-}) => (
-  <section className="space-y-4">
-    <div className="flex items-center justify-between">
-      <h2 className="text-lg font-bold tracking-tight text-[#4F3D32]">{title}</h2>
-      {actionLabel && (
-        <button
-          onClick={onAction}
-          className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-[#7f1d1d] hover:text-[#B45309]"
-        >
-          <span>{actionLabel}</span>
-          <ArrowRight className="w-3.5 h-3.5" />
-        </button>
-      )}
-    </div>
-
-    <div className="relative overflow-hidden rounded-[22px] border border-[#E7DDD0] bg-[#F7F1E7] px-4 pb-4 pt-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.6)]">
-      <div className="flex gap-5 overflow-x-auto pb-3">
-        {books.length === 0 ? (
-          <div className="w-full rounded-xl border border-dashed border-[#DCCDB9] bg-[#FBF6F1] px-4 py-6 text-sm text-[#7E6F64]">
-            No books in this shelf yet.
-          </div>
-        ) : (
-          books.map((book) => (
-            <article key={`${title}-${book.id}`} className="group relative shrink-0 cursor-pointer">
-              <div className="absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-[#2E261F] px-2 py-1 text-[10px] text-white opacity-0 shadow-md transition-opacity group-hover:opacity-100 z-20">
-                {book.title}
-              </div>
-              <div className="relative w-[116px] overflow-hidden rounded-[10px_10px_12px_8px] border border-[#DCCDB9] bg-[#3E322B] shadow-[0_12px_18px_rgba(66,46,30,0.18)]">
-                  <div className="relative aspect-[2/3] overflow-hidden">
-                    <BookCover coverUrl={book.cover_url} title={book.title} author={book.author} className="object-cover" />
-                    <div className="absolute inset-y-0 left-0 w-[8px] bg-black/10" />
-                  </div>
-                <div className="bg-[#F5EBDD] px-2 py-2 text-center">
-                  <div className="line-clamp-2 text-[11px] font-bold text-[#2C221E]">{book.title}</div>
-                  <div className="mt-1 text-[9px] text-[#7E6F64]">{book.author}</div>
-                </div>
-              </div>
-            </article>
-          ))
-        )}
-      </div>
-      <div className="absolute inset-x-4 bottom-0 h-4 rounded-b-[18px] bg-gradient-to-b from-[#D1B393] via-[#C19D75] to-[#B0885C] shadow-[0_10px_16px_rgba(86,63,43,0.14)]" />
-    </div>
-  </section>
-);
 
 export const DashboardPage: React.FC<DashboardPageProps> = ({
   userRole,
@@ -133,13 +92,15 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [libraryName, setLibraryName] = useState('MeelieFont Library');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('all');
 
   useEffect(() => {
     const loadDashboard = async () => {
       setLoading(true);
       try {
         const [libraryBooks, recentLogs] = await Promise.all([
-          LibraryService.getBooks({ limit: 20, skip: 0 }),
+          LibraryService.getAllBooks(),
           userRole === 'Member' ? Promise.resolve([]) : LibraryService.getLogs(),
         ]);
         setBooks(libraryBooks);
@@ -156,197 +117,330 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     void loadDashboard();
   }, [userRole]);
 
-  const metrics = useMemo(() => ({ totalBooks: books.length }), [books]);
-
-  const recentlyAdded = useMemo(
-    () => [...books]
-      .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
-      .slice(0, 4),
-    [books]
-  );
-
-  const shelfBooks = useMemo(() => {
-    const safeBooks = [...books].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-    return {
-      currentlyReading: safeBooks.slice(0, 3).map(toShelfBook),
-      nextUp: safeBooks.slice(3).map(toShelfBook),
-    };
+  const categories = useMemo(() => {
+    const counts = new Map<string, { name: string; count: number; coverUrl?: string }>();
+    books.forEach((book) => {
+      const catName = book.categories[0]?.name || 'General';
+      const existing = counts.get(catName);
+      if (existing) {
+        existing.count += 1;
+        if (!existing.coverUrl && book.cover_url) existing.coverUrl = book.cover_url;
+      } else {
+        counts.set(catName, { name: catName, count: 1, coverUrl: book.cover_url });
+      }
+    });
+    return Array.from(counts.values()).slice(0, 4);
   }, [books]);
 
-  const stats = [
-    { label: 'Total titles', value: String(metrics.totalBooks), detail: 'cataloged books' },
-  ];
+  const filteredBooks = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return [...books]
+      .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
+      .filter((book) => {
+        const matchesCat =
+          selectedCategory === 'all' ||
+          book.categories.some((c) => c.name.toLowerCase() === selectedCategory.toLowerCase());
+        if (!matchesCat) return false;
+        if (!q) return true;
+        return (
+          book.title.toLowerCase().includes(q) ||
+          book.isbn_13.includes(q) ||
+          book.authors.some((a) => a.name.toLowerCase().includes(q))
+        );
+      });
+  }, [books, searchQuery, selectedCategory]);
+
+  const featuredBooks = useMemo(() => filteredBooks.slice(0, 4), [filteredBooks]);
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchQuery.trim() && selectedCategory === 'all') {
+      onNavigate('books');
+    }
+  };
 
   return (
-    <div className="space-y-6 pb-6">
-      <div className="rounded-[28px] bg-gradient-to-r from-[#2C221E] via-[#3A2D27] to-[#53453C] p-5 text-white shadow-[0_18px_32px_rgba(63,45,35,0.18)]">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="max-w-xl">
-            <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-[#dc4444]/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#FCD7A4]">
-              <Sparkles className="w-3 h-3" />
-              MeelieFont Library
-            </div>
-            <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
-              Welcome back to {libraryName}.
-            </h1>
-            <p className="mt-2 text-sm text-[#E7DCCF]">
-              Keep your collection organized and catalog new titles in seconds.
-            </p>
-          </div>
+    <div className="space-y-8 pb-6">
+      {/* ── Warm Sand Hero & Overlapping Book Showcase (Dribbble Style) ── */}
+      <div className="relative">
+        {/* Sand backdrop */}
+        <div className="rounded-[24px] md:rounded-bl-[44px] md:rounded-br-[24px] md:rounded-tl-[24px] md:rounded-tr-[24px] bg-[#E4DFCE] px-5 pt-6 pb-24 sm:px-8 sm:pt-8 sm:pb-28">
+          <div className="flex flex-col gap-5">
+            {/* Title Row */}
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#6E737D]">
+                  {libraryName}
+                </p>
+                <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-[#14181F] sm:text-3xl">
+                  Discover
+                </h1>
+              </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => onNavigate('scanner')}
-              className="inline-flex items-center gap-2 rounded-xl bg-[#c62828] px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-[#a61f1f]"
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-white/80 px-3 py-1.5 text-xs font-semibold text-[#14181F] shadow-2xs">
+                  <Library className="h-3.5 w-3.5 text-[#18362F]" />
+                  <span className="font-mono tabular-nums">{books.length}</span> titles cataloged
+                </span>
+              </div>
+            </div>
+
+            {/* Pill Search Bar */}
+            <form
+              onSubmit={handleSearchSubmit}
+              className="flex flex-col gap-2 rounded-2xl bg-white p-2 shadow-[0_12px_28px_-8px_rgba(20,24,31,0.1)] sm:max-w-2xl sm:flex-row sm:items-center sm:gap-0 sm:rounded-full sm:p-1.5"
             >
-              <QrCode className="w-4 h-4" />
-              Scan ISBN
-            </button>
-            <button
-              onClick={() => onNavigate('books')}
-              className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/5 px-4 py-2 text-xs font-semibold text-white transition hover:bg-white/10"
-            >
-              <BookOpen className="w-4 h-4" />
-              Add Book Manual
-            </button>
+              <div className="relative flex items-center sm:border-r sm:border-[#ECEEF2] sm:pr-2">
+                <select
+                  aria-label="Filter by category"
+                  value={selectedCategory}
+                  onChange={(e) => setSelectedCategory(e.target.value)}
+                  className="w-full appearance-none bg-transparent py-2 pl-3 pr-7 text-xs font-semibold text-[#14181F] outline-none sm:w-auto"
+                >
+                  <option value="all">All Categories</option>
+                  {categories.map((cat) => (
+                    <option key={cat.name} value={cat.name}>
+                      {cat.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="relative flex flex-1 items-center">
+                <Search className="pointer-events-none absolute left-3 h-4 w-4 text-[#9CA3AF]" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Find the book you like..."
+                  className="w-full bg-transparent py-2 pl-9 pr-3 text-xs text-[#14181F] placeholder-[#9CA3AF] outline-none"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="inline-flex min-h-[40px] items-center justify-center rounded-xl bg-[#18362F] px-5 py-2 text-xs font-bold text-white shadow-[0_6px_14px_-4px_rgba(24,54,47,0.35)] transition hover:bg-[#112822] hover:shadow-[0_8px_18px_-4px_rgba(24,54,47,0.45)] active:scale-95 sm:rounded-full"
+              >
+                Search
+              </button>
+            </form>
+
+            <div className="mt-2 flex items-center justify-between">
+              <h2 className="text-base font-bold tracking-tight text-[#14181F] sm:text-lg">
+                {searchQuery || selectedCategory !== 'all' ? 'Search Results' : 'Recently Added'}
+              </h2>
+              <button
+                type="button"
+                onClick={() => onNavigate('books')}
+                className="inline-flex items-center gap-1 rounded-full bg-white px-3.5 py-1.5 text-xs font-bold text-[#18362F] shadow-xs transition hover:bg-[#18362F] hover:text-white active:scale-95"
+              >
+                <span>View all</span>
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </div>
+        </div>
+
+        {/* Overlapping Book Covers */}
+        <div className="-mt-20 px-4 sm:px-8">
+          {loading ? (
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="aspect-[2/3] animate-pulse rounded-2xl bg-[#ECEEF2]" />
+              ))}
+            </div>
+          ) : featuredBooks.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-[#D5D8DF] bg-white p-8 text-center shadow-sm">
+              <BookOpen className="mx-auto mb-2 h-8 w-8 text-[#9CA3AF]" />
+              <p className="text-sm font-bold text-[#14181F]">No matching books found</p>
+              <p className="mt-1 text-xs text-[#6E737D]">
+                Scan an ISBN or adjust your search filter to populate your library.
+              </p>
+              <button
+                type="button"
+                onClick={() => onNavigate('scanner')}
+                className="mt-4 inline-flex items-center gap-2 rounded-xl bg-[#18362F] px-4 py-2 text-xs font-bold text-white hover:bg-[#112822]"
+              >
+                <QrCode className="h-4 w-4" />
+                <span>Scan ISBN</span>
+              </button>
+            </div>
+          ) : (
+            <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-4 sm:grid sm:grid-cols-4 sm:gap-5 sm:overflow-visible sm:pb-0">
+              {featuredBooks.map((book) => (
+                <article
+                  key={book.id}
+                  onClick={() => onNavigate('books')}
+                  className="group w-[150px] shrink-0 snap-start cursor-pointer sm:w-auto"
+                >
+                  <div className="relative aspect-[2/3] overflow-hidden rounded-2xl border border-black/5 bg-[#F5F6F8] shadow-[0_14px_24px_-6px_rgba(20,24,31,0.22)] transition duration-200 group-hover:-translate-y-1.5">
+                    <BookCover
+                      coverUrl={book.cover_url}
+                      title={book.title}
+                      author={book.authors?.[0]?.name}
+                    />
+                  </div>
+                  <div className="mt-2.5 px-0.5">
+                    <h3 className="line-clamp-1 text-xs font-bold text-[#14181F] group-hover:text-[#18362F] sm:text-sm">
+                      {book.title}
+                    </h3>
+                    <p className="line-clamp-1 text-[11px] text-[#6E737D]">
+                      {book.authors?.map((a) => a.name).join(', ') || 'Unknown Author'}
+                    </p>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {stats.map((stat) => (
-          <div key={stat.label} className="rounded-2xl border border-[#E8E2D9] bg-white p-4 shadow-[0_8px_18px_rgba(80,60,40,0.04)]">
-            <div className="text-[11px] font-medium text-[#7E6F64]">{stat.label}</div>
-            <div className="mt-2 text-2xl font-black tracking-tight text-[#2C221E]">{stat.value}</div>
-            <div className="mt-1 text-[11px] text-[#7E6F64]">{stat.detail}</div>
-          </div>
-        ))}
-      </div>
-
-      <div className="rounded-[22px] border border-[#E7DDD0] bg-white p-4 shadow-[0_10px_20px_rgba(80,60,40,0.04)]">
-        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2 text-[#4F3D32]">
-            <Search className="w-4 h-4 text-[#7E6F64]" />
-            <span className="text-sm font-semibold">Quick access</span>
-          </div>
+      {/* ── Book Category Section (Dribbble Card Backplates) ── */}
+      <section className="space-y-4 pt-2">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-bold tracking-tight text-[#14181F] sm:text-lg">
+            Book Category
+          </h2>
           <button
             type="button"
             onClick={() => onNavigate('books')}
-            className="inline-flex items-center gap-2 rounded-lg border border-[#E5E0D8] bg-[#F9F6F2] px-3 py-2 text-[11px] font-semibold text-[#4A3E35] hover:border-[#D8C7B7]"
+            aria-label="Browse all categories"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#E5E7EB] bg-white text-[#6E737D] transition hover:bg-[#F5F6F8] hover:text-[#14181F]"
           >
-            Browse all books
-            <ArrowRight className="w-3.5 h-3.5" />
+            <SlidersHorizontal className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {['All books', 'Fiction', 'History', 'Technology', 'Design'].map((tag) => (
-            <button
-              key={tag}
-              type="button"
-              className={`rounded-full px-2.5 py-1.5 text-[11px] font-medium transition ${
-                tag === 'All books'
-                  ? 'bg-[#c62828] text-white'
-                  : 'bg-[#F5F1EB] text-[#5B4A40] hover:bg-[#EAE2D8]'
-              }`}
-              onClick={() => onNavigate('books')}
-            >
-              {tag}
-            </button>
-          ))}
+        <div className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-3 sm:grid sm:grid-cols-4 sm:gap-5 sm:overflow-visible sm:pb-0">
+          {(categories.length > 0
+            ? categories
+            : [
+                { name: 'Fiction', count: 0, coverUrl: undefined },
+                { name: 'Technology', count: 0, coverUrl: undefined },
+                { name: 'Design', count: 0, coverUrl: undefined },
+                { name: 'Business', count: 0, coverUrl: undefined },
+              ]
+          ).map((cat) => {
+            const CatIcon = getCategoryIcon(cat.name);
+            return (
+              <button
+                key={cat.name}
+                type="button"
+                onClick={() => {
+                  setSelectedCategory(cat.name);
+                  onNavigate('books');
+                }}
+                className="group flex w-[144px] shrink-0 snap-start flex-col items-center text-center sm:w-auto"
+              >
+                <div className="relative flex h-24 w-full items-end justify-center rounded-2xl bg-[#F5F6F8] pb-3 pt-4 transition group-hover:bg-[#ECEEF2]">
+                  {cat.coverUrl ? (
+                    <div className="-mt-6 h-20 w-14 overflow-hidden rounded-lg border border-black/5 bg-white shadow-[0_8px_16px_-4px_rgba(20,24,31,0.18)] transition group-hover:-translate-y-1">
+                      <BookCover coverUrl={cat.coverUrl} title={cat.name} />
+                    </div>
+                  ) : (
+                    <div className="-mt-6 flex h-16 w-16 items-center justify-center rounded-2xl border border-[#ECEEF2] bg-white text-[#18362F] shadow-[0_8px_18px_-4px_rgba(20,24,31,0.12)] transition group-hover:-translate-y-1 group-hover:text-[#F06449]">
+                      <CatIcon className="h-6 w-6" />
+                    </div>
+                  )}
+                </div>
+                <span className="mt-3 line-clamp-1 text-xs font-bold text-[#14181F] sm:text-sm">
+                  {cat.name}
+                </span>
+                <span className="mt-0.5 text-[11px] font-mono tabular-nums text-[#6E737D]">
+                  {cat.count} {cat.count === 1 ? 'title' : 'titles'}
+                </span>
+              </button>
+            );
+          })}
         </div>
-      </div>
+      </section>
 
-      <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
-        <section className="rounded-[24px] border border-[#E8E2D9] bg-white p-4 shadow-[0_10px_20px_rgba(80,60,40,0.04)]">
+      {/* ── Lower Grid: Recent Activities & Quick Actions ── */}
+      <div className="grid gap-6 lg:grid-cols-[1.25fr_0.75fr]">
+        {/* Quick Catalog List */}
+        <section className="rounded-2xl border border-[#ECEEF2] bg-white p-5 shadow-2xs">
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-lg font-bold tracking-tight text-[#4F3D32]">Recently added</h2>
-            <button type="button" onClick={() => onNavigate('books')} className="text-[11px] font-semibold text-[#7f1d1d] hover:text-[#B45309]">
-              View all
+            <h2 className="text-base font-bold tracking-tight text-[#14181F]">Quick Actions</h2>
+            <button
+              type="button"
+              onClick={() => onNavigate('books')}
+              className="inline-flex items-center gap-1 text-xs font-semibold text-[#18362F] hover:underline"
+            >
+              <span>Open catalog</span>
+              <ArrowRight className="h-3.5 w-3.5" />
             </button>
           </div>
 
-          {loading ? (
-            <div className="rounded-xl bg-[#FAF8F5] p-4 text-sm text-[#7E6F64]">Loading recent books...</div>
-          ) : recentlyAdded.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-[#DCCDB9] bg-[#FAF8F5] p-6 text-center text-sm text-[#7E6F64]">
-              No books added yet. Start scanning a title to populate the collection.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {recentlyAdded.map((book) => {
-                return (
-                  <div key={book.id} className="flex items-center gap-3 rounded-xl border border-[#E8E2D9] bg-[#FAF8F5] p-2.5">
-                    <div className="h-20 w-14 shrink-0 overflow-hidden rounded-lg border border-[#E5E0D8] bg-[#F0ECE4]">
-                      <BookCover coverUrl={book.cover_url} title={book.title} author={book.authors?.[0]?.name} className="object-cover" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <h3 className="truncate text-sm font-bold text-[#2C221E]">{book.title}</h3>
-                          <p className="truncate text-[11px] text-[#7E6F64]">{book.authors?.map((author) => author.name).join(', ') || 'Unknown Author'}</p>
-                        </div>
-                      </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-[#7E6F64]">
-                        <span className="font-mono">{formatIsbn(book.isbn_13)}</span>
-                        <span>•</span>
-                        <span>{formatAddedAt(book.created_at)}</span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+          <div className="grid gap-3 sm:grid-cols-3">
+            {[
+              { label: 'Scan ISBN / Barcode', desc: 'Use camera or manual code', icon: QrCode, onClick: () => onNavigate('scanner') },
+              { label: 'Add Book Manually', desc: 'Enter bibliographic details', icon: BookMarked, onClick: () => onNavigate('scanner') },
+              { label: 'Browse Book Shelf', desc: 'Shelf, grid & table views', icon: Library, onClick: () => onNavigate('books') },
+            ].map(({ label, desc, icon: Icon, onClick }) => (
+              <button
+                key={label}
+                type="button"
+                onClick={onClick}
+                className="flex items-start gap-3 rounded-xl border border-[#ECEEF2] bg-[#FAFBFD] p-3.5 text-left transition hover:border-[#18362F]/30 hover:bg-[#F5F6F8]"
+              >
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#EEF5F1] text-[#18362F]">
+                  <Icon className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs font-bold text-[#14181F]">{label}</div>
+                  <div className="mt-0.5 text-[11px] text-[#6E737D]">{desc}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {recentlyAddedSummary(books) > 0 && (
+            <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-[#ECEEF2] pt-3 text-[11px] text-[#6E737D]">
+              <span>Latest entry:</span>
+              <span className="font-semibold text-[#14181F]">{books[0]?.title}</span>
+              <span className="font-mono">({formatIsbn(books[0]?.isbn_13 || '')})</span>
+              <span>· {formatAddedAt(books[0]?.created_at)}</span>
             </div>
           )}
         </section>
 
-        <section className="rounded-[24px] border border-[#E8E2D9] bg-white p-4 shadow-[0_10px_20px_rgba(80,60,40,0.04)]">
-          <div className="mb-4 flex items-center gap-2 text-[#4F3D32]">
-            <Clock3 className="h-4 w-4 text-[#7E6F64]" />
-            <h2 className="text-lg font-bold tracking-tight">Recent activities</h2>
+        {/* Recent Activities */}
+        <section className="rounded-2xl border border-[#ECEEF2] bg-white p-5 shadow-2xs">
+          <div className="mb-4 flex items-center gap-2 text-[#14181F]">
+            <Clock3 className="h-4 w-4 text-[#18362F]" />
+            <h2 className="text-base font-bold tracking-tight">Recent Activities</h2>
           </div>
 
           {logs.length === 0 ? (
-            <div className="rounded-xl bg-[#FAF8F5] p-4 text-sm text-[#7E6F64]">No recent library activity yet.</div>
+            <div className="rounded-xl bg-[#F5F6F8] p-4 text-xs text-[#6E737D]">
+              No recent library activity yet.
+            </div>
           ) : (
-            <div className="space-y-3">
-              {logs.slice(0, 5).map((log) => (
-                <div key={log.id} className="rounded-xl border border-[#E8E2D9] bg-[#FAF8F5] p-3">
+            <div className="space-y-2.5">
+              {logs.slice(0, 4).map((log) => (
+                <div key={log.id} className="rounded-xl border border-[#ECEEF2] bg-[#FAFBFD] p-3">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#7E6F64]">{log.action}</span>
-                    <span className="text-[10px] text-[#A89F91]">{new Date(log.created_at).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })}</span>
+                    <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#18362F]">
+                      {log.action}
+                    </span>
+                    <span className="text-[10px] text-[#9CA3AF]">
+                      {new Date(log.created_at).toLocaleDateString('id-ID', {
+                        day: '2-digit',
+                        month: 'short',
+                      })}
+                    </span>
                   </div>
-                  <p className="mt-1 text-xs text-[#3E2F29]">{log.description}</p>
+                  <p className="mt-1 text-xs text-[#374151]">{log.description}</p>
                 </div>
               ))}
             </div>
           )}
         </section>
       </div>
-
-      <div className="space-y-6">
-        <ShelfSection title="My collection" books={shelfBooks.currentlyReading.concat(shelfBooks.nextUp)} actionLabel="Open catalog" onAction={() => onNavigate('books')} />
-      </div>
-
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        {[
-          { label: 'Scan ISBN / Barcode', icon: QrCode, onClick: () => onNavigate('scanner') },
-          { label: 'Add Book Manually', icon: BookMarked, onClick: () => onNavigate('scanner') },
-          { label: 'Open Catalog', icon: Library, onClick: () => onNavigate('books') },
-        ].map(({ label, icon: Icon, onClick }) => (
-          <button
-            key={label}
-            type="button"
-            onClick={onClick}
-            className="flex items-center gap-3 rounded-[20px] border border-[#E8E2D9] bg-white p-3 text-left shadow-[0_8px_18px_rgba(80,60,40,0.04)] transition hover:border-[#DCCDB9] hover:-translate-y-0.5"
-          >
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#F6EDE4] text-[#7f1d1d]">
-              <Icon className="h-4 w-4" />
-            </div>
-            <div className="text-sm font-semibold text-[#2C221E]">{label}</div>
-          </button>
-        ))}
-      </div>
     </div>
   );
 };
+
+function recentlyAddedSummary(books: Book[]): number {
+  return books.length;
+}

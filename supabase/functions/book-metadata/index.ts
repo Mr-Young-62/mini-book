@@ -1,6 +1,7 @@
 // Supabase Edge Function: book-metadata
 // Server-side ISBN metadata lookup with public-catalog fallbacks.
 
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createRateLimiter, getRateLimitKey } from "./rateLimit.ts";
 
 const checkRateLimit = createRateLimiter({ windowMs: 60_000, max: 20 });

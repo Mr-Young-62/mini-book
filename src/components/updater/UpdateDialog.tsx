@@ -51,29 +51,29 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
 
   return (
     <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-      <div className="w-full max-w-md rounded-2xl border border-[#E5E0D8] bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-[#EAE5DE] bg-[#FAF8F5] px-5 py-3">
-          <h2 className="text-sm font-bold text-[#2C221E]">Pembaruan tersedia</h2>
-          <button type="button" onClick={onClose} className="text-[#7E6F64] hover:text-[#2C221E]">
+      <div className="w-full max-w-md rounded-2xl border border-[#ECEEF2] bg-white shadow-xl overflow-hidden">
+        <div className="flex items-center justify-between border-b border-[#ECEEF2] bg-[#F5F6F8] px-5 py-3">
+          <h2 className="text-sm font-bold text-[#14181F]">Pembaruan tersedia</h2>
+          <button type="button" onClick={onClose} className="text-[#6E737D] hover:text-[#14181F]">
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="space-y-4 p-5 text-xs text-[#4A3E35]">
-          <div className="grid grid-cols-2 gap-2 rounded-lg bg-[#FAF8F5] p-3 font-mono">
+        <div className="space-y-4 p-5 text-xs text-[#374151]">
+          <div className="grid grid-cols-2 gap-2 rounded-xl bg-[#F5F6F8] p-3 font-mono">
             <div>
-              <div className="text-[10px] uppercase text-[#7E6F64]">Terpasang</div>
+              <div className="text-[10px] uppercase text-[#6E737D]">Terpasang</div>
               <div>{currentVersion} ({currentVersionCode})</div>
             </div>
             <div>
-              <div className="text-[10px] uppercase text-[#7E6F64]">Terbaru</div>
+              <div className="text-[10px] uppercase text-[#6E737D]">Terbaru</div>
               <div>{manifest.version} ({manifest.versionCode})</div>
             </div>
           </div>
 
           {manifest.changelog.length > 0 && (
             <div>
-              <h3 className="mb-1 text-[11px] font-bold uppercase tracking-wider text-[#7E6F64]">Catatan rilis</h3>
+              <h3 className="mb-1 text-[11px] font-bold uppercase tracking-wider text-[#6E737D]">Catatan rilis</h3>
               <ul className="list-disc space-y-1 pl-4">
                 {manifest.changelog.map((entry, index) => (
                   <li key={`${index}-${entry}`}>{entry}</li>
@@ -84,10 +84,10 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
 
           {downloading && (
             <div className="space-y-1">
-              <div className="h-2 overflow-hidden rounded-full bg-[#F0ECE4]">
-                <div className="h-full bg-[#c62828] transition-all" style={{ width: `${percent}%` }} />
+              <div className="h-2 overflow-hidden rounded-full bg-[#ECEEF2]">
+                <div className="h-full bg-[#18362F] transition-all" style={{ width: `${percent}%` }} />
               </div>
-              <div className="flex justify-between font-mono text-[10px] text-[#7E6F64]">
+              <div className="flex justify-between font-mono text-[10px] text-[#6E737D]">
                 <span>Mengunduh {percent}%</span>
                 <span>{formatBytes(download.received)} / {formatBytes(download.total)}</span>
               </div>
@@ -96,7 +96,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
 
           {download.phase === 'ready' && (
             <p className="rounded-lg bg-emerald-50 p-2 text-[11px] text-emerald-800">
-              APK terverifikasi. Pemasangan dalam aplikasi ditambahkan pada tahap berikutnya.
+              APK terverifikasi dan siap dipasang.
             </p>
           )}
 
@@ -119,9 +119,9 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
           </button>
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-[#EAE5DE] bg-[#FAF8F5] px-5 py-3">
+        <div className="flex items-center justify-end gap-2 border-t border-[#ECEEF2] bg-[#F5F6F8] px-5 py-3">
           {!forced && !downloading && (
-            <button type="button" onClick={onDismiss} className="px-3 py-1.5 text-xs font-medium text-[#7E6F64]">
+            <button type="button" onClick={onDismiss} className="px-3 py-1.5 text-xs font-medium text-[#6E737D]">
               Nanti
             </button>
           )}
@@ -129,7 +129,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
             <button
               type="button"
               onClick={onCancelDownload}
-              className="rounded-lg border border-[#D4CDC3] px-3.5 py-1.5 text-xs font-semibold text-[#2C221E]"
+              className="rounded-xl border border-[#E5E7EB] px-3.5 py-1.5 text-xs font-semibold text-[#14181F]"
             >
               Batal
             </button>
@@ -137,7 +137,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
             <button
               type="button"
               onClick={() => void onInstall()}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[#c62828] px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-[#a61f1f]"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-[#18362F] px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-[#112822]"
             >
               <Download className="h-3.5 w-3.5" />
               Instal APK
@@ -146,7 +146,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
             <button
               type="button"
               onClick={onStartDownload}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[#c62828] px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-[#a61f1f]"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-[#18362F] px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-[#112822]"
             >
               <Download className="h-3.5 w-3.5" />
               Unduh APK
@@ -156,7 +156,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
             <button
               type="button"
               onClick={onOpenSettings}
-              className="text-[11px] text-[#7E6F64] underline-offset-2 hover:underline"
+              className="text-[11px] text-[#6E737D] underline-offset-2 hover:underline"
             >
               Izin tidak diberikan? Buka Pengaturan
             </button>

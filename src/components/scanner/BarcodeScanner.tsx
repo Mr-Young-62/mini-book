@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { BarcodeFormat, BrowserMultiFormatReader, DecodeHintType } from '@zxing/library';
+import { Flashlight, RotateCcw, ImagePlus, Camera, Search, AlertCircle, X } from 'lucide-react';
 import { resolveScannedCode, type ResolvedCode } from '../../services/codeResolver';
 
 type Engine = 'native' | 'zxing';
@@ -114,16 +115,11 @@ export function BarcodeScanner({ onDetected, onScan, onClose, active = true, isP
       return;
     }
 
-lastRef.current = { text: value, count: 1, at: now, firstSeen: now, format, engine };
+    lastRef.current = { text: value, count: 1, at: now, firstSeen: now, format, engine };
     if (lastRef.current.count >= 2 && now - lastRef.current.firstSeen <= 8000 && emitRef.current) {
       emitRef.current(value, format, engine);
     }
   }, [isProcessing]);
-
-  useEffect(() => {
-    if (!active) return;
-    resetScanState();
-  }, [active, handleDecoded]);
 
   const nativeFrameRef = useRef(0);
 useEffect(() => {
@@ -349,31 +345,64 @@ useEffect(() => {
   };
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="relative overflow-hidden rounded-xl bg-black aspect-[4/3]">
+    <div className="flex flex-col gap-4 rounded-2xl border border-[#ECEEF2] bg-white p-4 shadow-2xs sm:p-5">
+      {/* Camera Viewfinder */}
+      <div className="relative overflow-hidden rounded-2xl bg-[#14181F] aspect-[4/3] shadow-inner">
         <video ref={videoRef} className="h-full w-full object-cover" playsInline muted />
-        <div className="pointer-events-none absolute inset-x-6 top-1/2 h-0.5 -translate-y-1/2 bg-red-500/80" />
+
+        {/* Subtle Viewfinder Corner Brackets */}
+        <div className="pointer-events-none absolute inset-5">
+          <span className="absolute left-0 top-0 h-5 w-5 rounded-tl-lg border-l-2 border-t-2 border-white/75" />
+          <span className="absolute right-0 top-0 h-5 w-5 rounded-tr-lg border-r-2 border-t-2 border-white/75" />
+          <span className="absolute bottom-0 left-0 h-5 w-5 rounded-bl-lg border-b-2 border-l-2 border-white/75" />
+          <span className="absolute bottom-0 right-0 h-5 w-5 rounded-br-lg border-b-2 border-r-2 border-white/75" />
+        </div>
+
+        {/* Status Pill */}
+        <div className="pointer-events-none absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 text-[10px] font-semibold text-white backdrop-blur-xs">
+          <span className={`h-1.5 w-1.5 rounded-full ${error ? 'bg-[#F06449]' : 'bg-emerald-400 animate-pulse'}`} />
+          <span>{error ? 'Camera Unavailable' : 'Live Scanner'}</span>
+        </div>
+
+        {/* Laser Line */}
+        <div className="pointer-events-none absolute inset-x-8 top-1/2 h-0.5 -translate-y-1/2 rounded-full bg-[#F06449] shadow-[0_0_12px_rgba(240,100,73,0.9)]" />
       </div>
-      {error ? <p className="text-sm text-red-600">{error}</p> : <p className="text-sm text-gray-600">{hint}</p>}
+
+      {/* Status / Error Message */}
+      {error ? (
+        <div className="flex items-start gap-2.5 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs text-rose-800">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
+          <span className="leading-relaxed">{error}</span>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 rounded-xl bg-[#F5F6F8] px-3.5 py-2.5 text-xs text-[#4B5563]">
+          <Camera className="h-4 w-4 shrink-0 text-[#18362F]" />
+          <span>{hint}</span>
+        </div>
+      )}
+
       {rawValue && (
-        <div className="rounded-lg border border-[#E5E0D8] bg-[#FAF8F5] p-2 text-xs">
-          <div className="flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide text-[#7E6F64]">
+        <div className="rounded-xl border border-[#ECEEF2] bg-[#F5F6F8] p-3 text-xs">
+          <div className="flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-wide text-[#6E737D]">
             <span>Terakhir dibaca</span>
             <span>{detectedFormat || 'UNKNOWN'}</span>
           </div>
-          <div className="mt-1 break-all font-mono text-[#2C221E]">{rawValue}</div>
+          <div className="mt-1 break-all font-mono text-[#14181F]">{rawValue}</div>
         </div>
       )}
+
       {scanChoices.length > 0 && (
-        <div className="rounded-lg border border-[#E5E0D8] bg-[#FAF8F5] p-2 text-xs">
-          <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-[#7E6F64]">Pilih kode dari foto</div>
+        <div className="rounded-xl border border-[#ECEEF2] bg-[#F5F6F8] p-3 text-xs">
+          <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-[#6E737D]">
+            Pilih kode dari foto
+          </div>
           <div className="space-y-2">
             {scanChoices.map((choice, index) => (
               <button
                 key={`${choice.rawValue}-${index}`}
                 type="button"
                 onClick={() => chooseImageResult(choice)}
-                className="w-full rounded-md border border-[#E5E0D8] bg-white px-2 py-1.5 text-left font-mono text-[11px] hover:border-[#c62828]"
+                className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2 text-left font-mono text-[11px] text-[#14181F] transition hover:border-[#18362F]"
               >
                 {choice.format} · {choice.rawValue}
               </button>
@@ -381,26 +410,74 @@ useEffect(() => {
           </div>
         </div>
       )}
+
+      {/* Scanner Controls */}
       <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={toggleTorch} className="rounded-lg border px-3 py-2 text-sm">
-          {torchOn ? 'Matikan senter' : 'Senter'}
+        <button
+          type="button"
+          onClick={toggleTorch}
+          className={`inline-flex min-h-[40px] items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold transition active:scale-95 ${
+            torchOn
+              ? 'bg-[#F06449] text-white shadow-[0_6px_14px_-4px_rgba(240,100,73,0.45)]'
+              : 'border border-[#E5E7EB] bg-[#F5F6F8] text-[#14181F] hover:bg-[#ECEEF2]'
+          }`}
+        >
+          <Flashlight className="h-3.5 w-3.5" />
+          <span>{torchOn ? 'Matikan Senter' : 'Senter'}</span>
         </button>
-        <button type="button" onClick={resetScanState} className="rounded-lg border px-3 py-2 text-sm">
-          Reset scanner
+
+        <button
+          type="button"
+          onClick={resetScanState}
+          className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-[#E5E7EB] bg-[#F5F6F8] px-3.5 py-2 text-xs font-semibold text-[#14181F] transition hover:bg-[#ECEEF2]"
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+          <span>Reset</span>
         </button>
-        <label className="cursor-pointer rounded-lg border px-3 py-2 text-sm">
-          Scan dari foto
-          <input type="file" accept="image/*" capture="environment" className="hidden"
-            onChange={(e) => onPickImage(e.target.files?.[0])} />
+
+        <label className="inline-flex min-h-[40px] cursor-pointer items-center gap-1.5 rounded-xl border border-[#E5E7EB] bg-[#F5F6F8] px-3.5 py-2 text-xs font-semibold text-[#14181F] transition hover:bg-[#ECEEF2]">
+          <ImagePlus className="h-3.5 w-3.5" />
+          <span>Scan Foto</span>
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={(e) => onPickImage(e.target.files?.[0])}
+          />
         </label>
-        {onClose && <button type="button" onClick={onClose} className="rounded-lg border px-3 py-2 text-sm">Tutup</button>}
+
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-[#E5E7EB] bg-white px-3.5 py-2 text-xs font-semibold text-[#6E737D] hover:bg-[#F5F6F8]"
+          >
+            <X className="h-3.5 w-3.5" />
+            <span>Tutup</span>
+          </button>
+        )}
       </div>
-      <div className="flex gap-2">
-        <input value={manual} onChange={(e) => setManual(e.target.value)} placeholder="Ketik ISBN / kode manual"
-          className="flex-1 rounded-lg border px-3 py-2 text-sm" inputMode="text" />
-        <button type="button" className="rounded-lg bg-black px-3 py-2 text-sm text-white"
-          onClick={() => { resetScanState(); if (emitRef.current) emitRef.current(manual); }}>
-          Cari
+
+      {/* Quick Code Input */}
+      <div className="flex gap-2 pt-1">
+        <input
+          value={manual}
+          onChange={(e) => setManual(e.target.value)}
+          placeholder="Ketik ISBN / kode manual"
+          className="min-h-[42px] flex-1 rounded-xl border border-[#E5E7EB] bg-[#F5F6F8] px-3.5 py-2 text-xs text-[#14181F] placeholder-[#9CA3AF] outline-none focus:border-[#18362F] focus:bg-white"
+          inputMode="text"
+        />
+        <button
+          type="button"
+          className="inline-flex min-h-[42px] items-center gap-1.5 rounded-xl bg-[#18362F] px-4 py-2 text-xs font-bold text-white shadow-[0_6px_14px_-4px_rgba(24,54,47,0.35)] transition hover:bg-[#112822] hover:shadow-[0_8px_18px_-4px_rgba(24,54,47,0.45)] active:scale-95"
+          onClick={() => {
+            resetScanState();
+            if (emitRef.current) emitRef.current(manual);
+          }}
+        >
+          <Search className="h-3.5 w-3.5" />
+          <span>Cari</span>
         </button>
       </div>
     </div>

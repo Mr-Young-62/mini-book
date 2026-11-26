@@ -42,12 +42,12 @@ const BookCoverThumbnail: React.FC<{
 
   if (!src || failed) {
     return (
-      <div className={`flex h-full w-full items-center justify-center bg-gradient-to-br from-[#EAE5DE] via-[#F7F3EE] to-[#D8C9B4] text-[#4F3D32] ${className}`}>
+      <div className={`flex h-full w-full items-center justify-center bg-gradient-to-br from-[#ECEEF2] via-[#F9F8F5] to-[#DDD7C5] text-[#4F3D32] ${className}`}>
         <div className="flex max-w-[80%] flex-col items-center justify-center text-center">
-          <BookOpen className="mb-2 h-6 w-6 text-[#8C7E72]" />
-          <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#8C7E72]">Cover</div>
+          <BookOpen className="mb-2 h-6 w-6 text-[#6E737D]" />
+          <div className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#6E737D]">Cover</div>
           <div className="mt-1 line-clamp-3 text-[10px] font-semibold leading-tight">{title || 'No cover'}</div>
-          {author && <div className="mt-1 text-[8px] text-[#7E6F64]">{author}</div>}
+          {author && <div className="mt-1 text-[8px] text-[#6E737D]">{author}</div>}
         </div>
       </div>
     );
@@ -123,8 +123,8 @@ const EditBookForm: React.FC<EditBookFormProps> = ({ book, onSave }) => {
   };
 
   const inputClass =
-    'w-full px-3 py-2 text-xs rounded-lg border border-[#D4CDC3] bg-white text-[#2C221E] outline-none focus:border-[#c62828]';
-  const labelClass = 'block text-[11px] font-semibold text-[#7E6F64] mb-1';
+    'w-full px-3 py-2 text-xs rounded-lg border border-[#E5E7EB] bg-white text-[#14181F] outline-none focus:border-[#18362F]';
+  const labelClass = 'block text-[11px] font-semibold text-[#6E737D] mb-1';
 
   return (
     <form id="edit-book-form" onSubmit={submit} className="space-y-3">
@@ -215,7 +215,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
   const loadBooks = async () => {
     setLoading(true);
     try {
-      const data = await LibraryService.getBooks({ limit: 20, skip: 0 });
+      const data = await LibraryService.getAllBooks();
       setBooks(data);
     } catch (err) {
       console.error('Error fetching books:', err);
@@ -311,27 +311,26 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#EAE5DE] pb-5">
+    <div className="space-y-7 pb-6">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#ECEEF2] pb-5">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-[#2C221E] font-sans">
+          <h1 className="text-2xl font-extrabold tracking-tight text-[#14181F] font-sans sm:text-3xl">
             Bookshelf & Catalog
           </h1>
-          <p className="text-xs text-[#7E6F64]">
+          <p className="mt-1.5 text-xs leading-relaxed text-[#6E737D]">
             Browse bibliographic entries in the catalog ({filteredBooks.length} titles listed)
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           {/* View Mode Toggle */}
-          <div className="flex items-center bg-[#F0ECE4] p-1 rounded-lg">
+          <div className="flex items-center bg-[#ECEEF2] p-1 rounded-lg">
             <button
               onClick={() => setViewMode('shelf')}
               className={`p-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${
                 viewMode === 'shelf'
-                  ? 'bg-white text-[#2C221E] shadow-2xs'
-                  : 'text-[#7E6F64] hover:text-[#2C221E]'
+                  ? 'bg-white text-[#14181F] shadow-2xs'
+                  : 'text-[#6E737D] hover:text-[#14181F]'
               }`}
               title="Bookshelf Wood View"
             >
@@ -342,8 +341,8 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
               onClick={() => setViewMode('grid')}
               className={`p-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${
                 viewMode === 'grid'
-                  ? 'bg-white text-[#2C221E] shadow-2xs'
-                  : 'text-[#7E6F64] hover:text-[#2C221E]'
+                  ? 'bg-white text-[#14181F] shadow-2xs'
+                  : 'text-[#6E737D] hover:text-[#14181F]'
               }`}
               title="Grid Card View"
             >
@@ -354,8 +353,8 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
               onClick={() => setViewMode('table')}
               className={`p-1.5 rounded-md text-xs font-medium flex items-center gap-1.5 transition-colors ${
                 viewMode === 'table'
-                  ? 'bg-white text-[#2C221E] shadow-2xs'
-                  : 'text-[#7E6F64] hover:text-[#2C221E]'
+                  ? 'bg-white text-[#14181F] shadow-2xs'
+                  : 'text-[#6E737D] hover:text-[#14181F]'
               }`}
               title="Table Record View"
             >
@@ -366,7 +365,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
 
           <button
             onClick={toggleArchived}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#F0ECE4] hover:bg-[#E5E0D8] text-[#2C221E] text-xs font-semibold rounded-lg shadow-2xs transition-colors whitespace-nowrap"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#ECEEF2] hover:bg-[#E5E7EB] text-[#14181F] text-xs font-semibold rounded-lg shadow-2xs transition-colors whitespace-nowrap"
           >
             <Archive className="w-3.5 h-3.5" />
             <span>Arsip</span>
@@ -374,7 +373,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
 
           <button
             onClick={onNavigateToScanner}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#c62828] hover:bg-[#a61f1f] text-white text-xs font-semibold rounded-lg shadow-2xs transition-colors whitespace-nowrap"
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-[#18362F] hover:bg-[#112822] text-white text-xs font-semibold rounded-lg shadow-2xs transition-colors whitespace-nowrap"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Catalog New Book</span>
@@ -383,34 +382,34 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
       </div>
 
       {showArchived && (
-        <div className="bg-white border border-[#E8E2D9] rounded-xl p-4 shadow-2xs">
+        <div className="bg-white border border-[#ECEEF2] rounded-xl p-4 shadow-2xs">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <Archive className="w-4 h-4 text-[#7E6F64]" />
-              <h2 className="text-xs font-bold uppercase tracking-wider text-[#2C221E]">Arsip Buku</h2>
-              <span className="text-[11px] text-[#7E6F64] font-mono">({archivedBooks.length})</span>
+              <Archive className="w-4 h-4 text-[#6E737D]" />
+              <h2 className="text-xs font-bold uppercase tracking-wider text-[#14181F]">Arsip Buku</h2>
+              <span className="text-[11px] text-[#6E737D] font-mono">({archivedBooks.length})</span>
             </div>
             <button
               onClick={() => setShowArchived(false)}
-              className="text-[11px] text-[#7E6F64] hover:text-[#2C221E]"
+              className="text-[11px] text-[#6E737D] hover:text-[#14181F]"
             >
               Tutup
             </button>
           </div>
           {archivedLoading ? (
-            <div className="h-16 bg-[#F0ECE4] rounded-lg animate-pulse" />
+            <div className="h-16 bg-[#ECEEF2] rounded-lg animate-pulse" />
           ) : archivedBooks.length === 0 ? (
-            <p className="text-xs text-[#7E6F64]">Tidak ada buku yang diarsipkan.</p>
+            <p className="text-xs text-[#6E737D]">Tidak ada buku yang diarsipkan.</p>
           ) : (
             <div className="space-y-2">
               {archivedBooks.map((book) => (
                 <div
                   key={book.id}
-                  className="flex items-center justify-between gap-3 p-2.5 rounded-lg border border-[#EAE5DE] bg-[#FAF8F5]"
+                  className="flex items-center justify-between gap-3 p-2.5 rounded-lg border border-[#ECEEF2] bg-[#F5F6F8]"
                 >
                   <div className="min-w-0">
-                    <div className="text-xs font-semibold text-[#2C221E] truncate">{book.title}</div>
-                    <div className="text-[10px] text-[#7E6F64] font-mono">
+                    <div className="text-xs font-semibold text-[#14181F] truncate">{book.title}</div>
+                    <div className="text-[10px] text-[#6E737D] font-mono">
                       ISBN {book.isbn_13} ·
                       {' '}diarsipkan {book.deleted_at ? new Date(book.deleted_at).toLocaleDateString() : '-'}
                     </div>
@@ -430,21 +429,21 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
       )}
 
       {/* Search and Filters Toolbar */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3 rounded-xl border border-[#E8E2D9] shadow-2xs">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3 rounded-xl border border-[#ECEEF2] shadow-2xs">
         {/* Search Input */}
         <div className="relative flex-1">
-          <Search className="w-4 h-4 text-[#A89F91] absolute left-3 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 text-[#9CA3AF] absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search by title, author, or ISBN..."
-            className="w-full pl-9 pr-4 py-2 text-xs bg-[#FAF8F5] border border-[#E5E0D8] rounded-lg focus:outline-hidden focus:border-[#c62828]"
+            className="w-full pl-9 pr-4 py-2 text-xs bg-[#F5F6F8] border border-[#E5E7EB] rounded-lg focus:outline-hidden focus:border-[#18362F]"
           />
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#A89F91] hover:text-[#2C221E]"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#9CA3AF] hover:text-[#14181F]"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -456,7 +455,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-3 py-2 text-xs bg-[#FAF8F5] border border-[#E5E0D8] rounded-lg text-[#4A3E35] focus:outline-hidden"
+            className="px-3 py-2 text-xs bg-[#F5F6F8] border border-[#E5E7EB] rounded-lg text-[#374151] focus:outline-hidden"
           >
             <option value="all">All Categories</option>
             {categories.map((cat) => (
@@ -472,16 +471,16 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
       {loading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 animate-pulse">
           {[1, 2, 3, 4, 5, 6].map((i) => (
-            <div key={i} className="h-64 bg-[#F0ECE4] rounded-xl" />
+            <div key={i} className="h-64 bg-[#ECEEF2] rounded-xl" />
           ))}
         </div>
       ) : filteredBooks.length === 0 ? (
-        <div className="text-center py-16 bg-white border border-[#E8E2D9] rounded-2xl p-8 max-w-lg mx-auto">
-          <BookOpen className="w-12 h-12 mx-auto text-[#A89F91] mb-3" />
-          <h3 className="text-base font-bold text-[#2C221E]">
+        <div className="text-center py-16 bg-white border border-[#ECEEF2] rounded-2xl p-8 max-w-lg mx-auto">
+          <BookOpen className="w-12 h-12 mx-auto text-[#9CA3AF] mb-3" />
+          <h3 className="text-base font-bold text-[#14181F]">
             {books.length === 0 ? 'Digital Bookshelf is Empty' : 'No books found'}
           </h3>
-          <p className="text-xs text-[#7E6F64] max-w-sm mx-auto mb-4">
+          <p className="text-xs text-[#6E737D] max-w-sm mx-auto mb-4">
             {books.length === 0
               ? 'There are no books cataloged in the library. Use the smart ISBN scanner to add a book.'
               : 'No bibliographic items match your current filter criteria.'}
@@ -489,7 +488,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
           {books.length === 0 ? (
             <button
               onClick={onNavigateToScanner}
-              className="px-4 py-2 bg-[#c62828] hover:bg-[#a61f1f] text-white text-xs font-semibold rounded-lg shadow-2xs"
+              className="px-4 py-2 bg-[#18362F] hover:bg-[#112822] text-white text-xs font-semibold rounded-lg shadow-2xs"
             >
               Scan & Add First Book
             </button>
@@ -499,7 +498,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
                 setSearchQuery('');
                 setSelectedCategory('all');
               }}
-              className="px-4 py-2 bg-[#F0ECE4] hover:bg-[#E5E0D8] text-xs font-semibold rounded-lg text-[#2C221E]"
+              className="px-4 py-2 bg-[#ECEEF2] hover:bg-[#E5E7EB] text-xs font-semibold rounded-lg text-[#14181F]"
             >
               Clear Filters
             </button>
@@ -522,7 +521,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
                         className="group relative cursor-pointer flex flex-col items-center shrink-0 w-32 sm:w-36 transition-all hover:-translate-y-2"
                       >
                         {/* Book 3D spine & cover effect */}
-                        <div className="relative aspect-2/3 w-full rounded-xs overflow-hidden shadow-[3px_6px_14px_rgba(44,34,30,0.25)] border-r-2 border-[#1C1613]/30 bg-[#3E322B]">
+                        <div className="relative aspect-2/3 w-full rounded-xs overflow-hidden shadow-[3px_6px_14px_rgba(44,34,30,0.25)] border-r-2 border-[#14181F]/30 bg-[#18362F]">
                           <BookCoverThumbnail
                             coverUrl={book.cover_url}
                             title={book.title}
@@ -533,7 +532,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
 
                         {/* Minimal Title label below book on shelf */}
                         <div className="mt-2 text-center w-full">
-                          <h4 className="text-[11px] font-bold text-[#2C221E] line-clamp-1 group-hover:text-[#c62828] transition-colors">
+                          <h4 className="text-[11px] font-bold text-[#14181F] line-clamp-1 group-hover:text-[#18362F] transition-colors">
                             {book.title}
                           </h4>
                         </div>
@@ -542,9 +541,9 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
                 </div>
 
                 {/* Wooden Bookshelf Board */}
-                <div className="relative w-full h-4 bg-gradient-to-b from-[#8C6239] via-[#6F4E2C] to-[#533A1F] rounded-xs shadow-[0_6px_10px_rgba(0,0,0,0.18)] border-t border-[#A87B4C]/40">
+                <div className="relative w-full h-4 bg-gradient-to-b from-[#E4DFCE] via-[#DDD7C5] to-[#CFC8B4] rounded-xs shadow-[0_6px_10px_rgba(0,0,0,0.18)] border-t border-[#E4DFCE]/40">
                   {/* Wood grain highlight line */}
-                  <div className="h-[2px] w-full bg-[#B88A58]/50" />
+                  <div className="h-[2px] w-full bg-[#ECE7D8]/50" />
                 </div>
                 {/* Wall shadow below shelf */}
                 <div className="h-2 w-full bg-gradient-to-b from-black/10 to-transparent" />
@@ -559,10 +558,10 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
             <div
               key={book.id}
               onClick={() => setActiveBook(book)}
-              className="group cursor-pointer bg-white border border-[#E8E2D9] rounded-xl p-3 hover:border-[#c62828]/40 hover:shadow-xs transition-all flex flex-col justify-between"
+              className="group cursor-pointer bg-white border border-[#ECEEF2] rounded-xl p-3 hover:border-[#18362F]/40 hover:shadow-xs transition-all flex flex-col justify-between"
             >
               <div>
-                <div className="aspect-2/3 rounded-lg overflow-hidden bg-[#F0ECE4] mb-2.5 relative shadow-2xs">
+                <div className="aspect-2/3 rounded-lg overflow-hidden bg-[#ECEEF2] mb-2.5 relative shadow-2xs">
                   <BookCoverThumbnail
                     coverUrl={book.cover_url}
                     title={book.title}
@@ -571,15 +570,15 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
                   />
                 </div>
 
-                  <h3 className="text-xs font-bold text-[#2C221E] group-hover:text-[#c62828] line-clamp-1 transition-colors">
+                  <h3 className="text-xs font-bold text-[#14181F] group-hover:text-[#18362F] line-clamp-1 transition-colors">
                     {book.title}
                   </h3>
-                  <p className="text-[11px] text-[#7E6F64] line-clamp-1">
+                  <p className="text-[11px] text-[#6E737D] line-clamp-1">
                     {book.authors.map((a) => a.name).join(', ')}
                   </p>
                 </div>
 
-                <div className="mt-3 pt-2 border-t border-[#F0ECE4] flex items-center justify-between text-[10px] font-mono text-[#A89F91]">
+                <div className="mt-3 pt-2 border-t border-[#ECEEF2] flex items-center justify-between text-[10px] font-mono text-[#9CA3AF]">
                   <span>ISBN {book.isbn_13.slice(-5)}</span>
                 </div>
               </div>
@@ -587,10 +586,10 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
         </div>
       ) : (
         /* =================== VIEW 3: DENSE CATALOG TABLE =================== */
-        <div className="bg-white border border-[#E8E2D9] rounded-xl overflow-hidden shadow-2xs">
+        <div className="bg-white border border-[#ECEEF2] rounded-xl overflow-hidden shadow-2xs">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className="bg-[#FAF8F5] border-b border-[#E8E2D9] text-[#7E6F64] font-medium">
+              <thead className="bg-[#F5F6F8] border-b border-[#ECEEF2] text-[#6E737D] font-medium">
                 <tr>
                   <th className="py-3 px-4">Title & Author</th>
                   <th className="py-3 px-4 font-mono">ISBN-13</th>
@@ -600,29 +599,29 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
                   <th className="py-3 px-4 text-right">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#F0ECE4]">
+              <tbody className="divide-y divide-[#ECEEF2]">
                 {filteredBooks.map((book) => (
                   <tr
                       key={book.id}
                       onClick={() => setActiveBook(book)}
-                      className="hover:bg-[#FAF8F5] cursor-pointer transition-colors"
+                      className="hover:bg-[#F5F6F8] cursor-pointer transition-colors"
                     >
                       <td className="py-3 px-4">
-                        <div className="font-semibold text-[#2C221E]">{book.title}</div>
-                        <div className="text-[11px] text-[#7E6F64]">
+                        <div className="font-semibold text-[#14181F]">{book.title}</div>
+                        <div className="text-[11px] text-[#6E737D]">
                           {book.authors.map((a) => a.name).join(', ')}
                         </div>
                       </td>
-                      <td className="py-3 px-4 font-mono text-[#5A4D44] tabular-nums">
+                      <td className="py-3 px-4 font-mono text-[#4B5563] tabular-nums">
                         {formatIsbn(book.isbn_13)}
                       </td>
-                      <td className="py-3 px-4 text-[#5A4D44]">
+                      <td className="py-3 px-4 text-[#4B5563]">
                         {book.categories[0]?.name || 'General'}
                       </td>
-                      <td className="py-3 px-4 text-[#7E6F64]">
+                      <td className="py-3 px-4 text-[#6E737D]">
                         {book.publisher?.name || 'Unknown'} · {book.publication_year || 'N/A'}
                       </td>
-                      <td className="py-3 px-4 text-[#7E6F64] font-mono tabular-nums">
+                      <td className="py-3 px-4 text-[#6E737D] font-mono tabular-nums">
                         {formatAddedAt(book.created_at)}
                       </td>
                       <td className="py-3 px-4 text-right">
@@ -631,7 +630,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
                             e.stopPropagation();
                             setActiveBook(book);
                           }}
-                          className="px-2.5 py-1 text-[11px] font-semibold text-[#c62828] hover:bg-[#fce4e4] rounded transition-colors"
+                          className="px-2.5 py-1 text-[11px] font-semibold text-[#18362F] hover:bg-[#EEF5F1] rounded transition-colors"
                         >
                           View Details
                         </button>
@@ -647,21 +646,21 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
       {/* =================== BOOK DETAIL MODAL =================== */}
       {activeBook && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-2xl w-full border border-[#E5E0D8] shadow-xl overflow-hidden my-8">
+          <div className="bg-white rounded-2xl max-w-2xl w-full border border-[#E5E7EB] shadow-xl overflow-hidden my-8">
             {/* Modal Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[#EAE5DE] bg-[#FAF8F5]">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#ECEEF2] bg-[#F5F6F8]">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-[#c62828] uppercase tracking-wider font-mono">
+                <span className="text-xs font-semibold text-[#18362F] uppercase tracking-wider font-mono">
                   Bibliographic Details
                 </span>
                 <span>·</span>
-                <span className="text-xs text-[#7E6F64] font-mono tabular-nums">
+                <span className="text-xs text-[#6E737D] font-mono tabular-nums">
                   ISBN: {activeBook.isbn_13}
                 </span>
               </div>
               <button
                 onClick={closeBookDetail}
-                className="p-1 rounded-lg text-[#7E6F64] hover:text-[#2C221E] hover:bg-[#EAE5DE]"
+                className="p-1 rounded-lg text-[#6E737D] hover:text-[#14181F] hover:bg-[#ECEEF2]"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -679,7 +678,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
                 <>
               {/* Split Top: Cover + Info */}
               <div className="flex flex-col sm:flex-row gap-5">
-                <div className="w-28 sm:w-36 aspect-2/3 rounded-lg overflow-hidden bg-[#F2EDE4] shrink-0 shadow-sm border border-[#E5E0D8]">
+                <div className="w-28 sm:w-36 aspect-2/3 rounded-lg overflow-hidden bg-[#ECEEF2] shrink-0 shadow-sm border border-[#E5E7EB]">
                   <BookCoverThumbnail
                     coverUrl={activeBook.cover_url}
                     title={activeBook.title}
@@ -689,53 +688,53 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
                 </div>
 
                 <div className="flex-1 space-y-2">
-                  <h2 className="text-lg font-bold text-[#2C221E] leading-tight">
+                  <h2 className="text-lg font-bold text-[#14181F] leading-tight">
                     {activeBook.title}
                   </h2>
                   {activeBook.subtitle && (
-                    <p className="text-xs font-medium text-[#7E6F64] italic">
+                    <p className="text-xs font-medium text-[#6E737D] italic">
                       {activeBook.subtitle}
                     </p>
                   )}
-                  <p className="text-xs text-[#4A3E35]">
+                  <p className="text-xs text-[#374151]">
                     By <span className="font-semibold">{activeBook.authors.map((a) => a.name).join(', ')}</span>
                   </p>
 
-                  <div className="pt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#7E6F64] border-t border-[#F0ECE4]">
+                  <div className="pt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#6E737D] border-t border-[#ECEEF2]">
                     <div>
                       Publisher:{' '}
-                      <span className="font-medium text-[#2C221E]">
+                      <span className="font-medium text-[#14181F]">
                         {activeBook.publisher?.name || 'N/A'}
                       </span>
                     </div>
                     <div>
                       Year:{' '}
-                      <span className="font-medium text-[#2C221E] font-mono tabular-nums">
+                      <span className="font-medium text-[#14181F] font-mono tabular-nums">
                         {activeBook.publication_year || 'N/A'}
                       </span>
                     </div>
                     <div>
                       Pages:{' '}
-                      <span className="font-medium text-[#2C221E] font-mono tabular-nums">
+                      <span className="font-medium text-[#14181F] font-mono tabular-nums">
                         {activeBook.page_count || 'N/A'}
                       </span>
                     </div>
                     <div>
                       Language:{' '}
-                      <span className="font-medium text-[#2C221E] uppercase">
+                      <span className="font-medium text-[#14181F] uppercase">
                         {activeBook.language || 'EN'}
                       </span>
                     </div>
                     <div>
                       Ditambahkan:{' '}
-                      <span className="font-medium text-[#2C221E] font-mono tabular-nums">
+                      <span className="font-medium text-[#14181F] font-mono tabular-nums">
                         {formatAddedAt(activeBook.created_at)}
                       </span>
                     </div>
                   </div>
 
                   {activeBook.description && (
-                    <p className="pt-2 text-xs text-[#5A4D44] line-clamp-3 leading-relaxed">
+                    <p className="pt-2 text-xs text-[#4B5563] line-clamp-3 leading-relaxed">
                       {activeBook.description}
                     </p>
                   )}
@@ -746,17 +745,17 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
             </div>
 
             {/* Modal Footer */}
-            <div className="px-6 py-3.5 border-t border-[#EAE5DE] bg-[#FAF8F5] flex items-center justify-between gap-3">
+            <div className="px-6 py-3.5 border-t border-[#ECEEF2] bg-[#F5F6F8] flex items-center justify-between gap-3">
               {editingBook ? (
                 <>
-                  <span className="text-[11px] text-[#7E6F64]">
+                  <span className="text-[11px] text-[#6E737D]">
                     Perubahan akan disimpan ke katalog.
                   </span>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={closeBookDetail}
                       disabled={savingEdit}
-                      className="px-4 py-2 bg-white border border-[#D4CDC3] text-xs font-semibold rounded-lg text-[#2C221E] hover:bg-[#F5F2EB] disabled:opacity-60"
+                      className="px-4 py-2 bg-white border border-[#E5E7EB] text-xs font-semibold rounded-lg text-[#14181F] hover:bg-[#F5F6F8] disabled:opacity-60"
                     >
                       Batal
                     </button>
@@ -764,7 +763,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
                       type="submit"
                       form="edit-book-form"
                       disabled={savingEdit}
-                      className="px-4 py-2 bg-[#c62828] hover:bg-[#a91f1f] text-white text-xs font-semibold rounded-lg disabled:opacity-60"
+                      className="px-4 py-2 bg-[#18362F] hover:bg-[#112822] text-white text-xs font-semibold rounded-lg disabled:opacity-60"
                     >
                       {savingEdit ? 'Menyimpan...' : 'Simpan Perubahan'}
                     </button>
@@ -782,7 +781,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
                     </button>
                     <button
                       onClick={() => setEditingBook(true)}
-                      className="inline-flex items-center gap-1 text-xs text-[#2C221E] hover:text-[#c62828] font-semibold"
+                      className="inline-flex items-center gap-1 text-xs text-[#14181F] hover:text-[#18362F] font-semibold"
                     >
                       <Pencil className="w-3.5 h-3.5" />
                       <span>Edit Record</span>
@@ -791,7 +790,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
 
                   <button
                     onClick={closeBookDetail}
-                    className="px-4 py-2 bg-white border border-[#D4CDC3] text-xs font-semibold rounded-lg text-[#2C221E] hover:bg-[#F5F2EB]"
+                    className="px-4 py-2 bg-white border border-[#E5E7EB] text-xs font-semibold rounded-lg text-[#14181F] hover:bg-[#F5F6F8]"
                   >
                     Close
                   </button>

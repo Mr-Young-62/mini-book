@@ -18,7 +18,7 @@ export const ReportsPage: React.FC = () => {
   const loadReportsData = async () => {
     setLoading(true);
     try {
-      setBooks(await LibraryService.getBooks({ limit: 20, skip: 0 }));
+      setBooks(await LibraryService.getAllBooks());
     } catch (err) {
       console.error('Error loading reports data:', err);
     } finally {
@@ -39,11 +39,11 @@ export const ReportsPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#EAE5DE] pb-4">
+    <div className="space-y-7 pb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#ECEEF2] pb-5">
         <div>
-          <p className="text-xs text-[#7E6F64]">
+          <h1 className="text-2xl font-extrabold tracking-tight text-[#14181F] sm:text-3xl">Reports</h1>
+          <p className="mt-1.5 text-xs leading-relaxed text-[#6E737D]">
             Catalog summary by subject.
           </p>
         </div>
@@ -51,7 +51,7 @@ export const ReportsPage: React.FC = () => {
         <div className="flex items-center gap-2">
           <button
             onClick={() => window.print()}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-[#D4CDC3] hover:bg-[#F5F2EB] text-[#2C221E] text-xs font-semibold rounded-lg transition-colors"
+            className="inline-flex min-h-[40px] items-center gap-1.5 px-3.5 py-1.5 bg-white border border-[#E5E7EB] hover:bg-[#F5F6F8] text-[#14181F] text-xs font-semibold rounded-xl transition-colors"
           >
             <Printer className="w-3.5 h-3.5" />
             <span>Print Report</span>
@@ -61,30 +61,29 @@ export const ReportsPage: React.FC = () => {
 
       {/* Summary KPI Strip */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="bg-white border border-[#E8E2D9] rounded-xl p-4 shadow-2xs">
-          <span className="text-[11px] text-[#7E6F64] block mb-1">Total Titles</span>
-          <div className="text-xl font-bold font-mono text-[#2C221E] tabular-nums">{books.length}</div>
-          <span className="text-[10px] text-[#A89F91]">Cataloged books</span>
+        <div className="bg-white border border-[#ECEEF2] rounded-2xl p-5 shadow-2xs">
+          <span className="text-[11px] font-medium text-[#6E737D] block mb-1">Total Titles</span>
+          <div className="text-2xl font-bold font-mono text-[#14181F] tabular-nums">{books.length}</div>
+          <span className="text-[11px] text-[#9CA3AF]">Cataloged books</span>
         </div>
 
-        <div className="bg-white border border-[#E8E2D9] rounded-xl p-4 shadow-2xs">
-          <span className="text-[11px] text-[#7E6F64] block mb-1">Subjects</span>
-          <div className="text-xl font-bold font-mono text-[#2C221E] tabular-nums">{Object.keys(categoryCounts).length}</div>
-          <span className="text-[10px] text-[#A89F91]">Categories in use</span>
+        <div className="bg-white border border-[#ECEEF2] rounded-2xl p-5 shadow-2xs">
+          <span className="text-[11px] font-medium text-[#6E737D] block mb-1">Subjects</span>
+          <div className="text-2xl font-bold font-mono text-[#14181F] tabular-nums">{Object.keys(categoryCounts).length}</div>
+          <span className="text-[11px] text-[#9CA3AF]">Categories in use</span>
         </div>
-
       </div>
 
       <div className="grid grid-cols-1 gap-6">
-        <div className="bg-white border border-[#E8E2D9] rounded-xl p-5 shadow-2xs space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-[#F0ECE4]">
+        <div className="bg-white border border-[#ECEEF2] rounded-2xl p-5 shadow-2xs space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-[#ECEEF2]">
             <div>
-              <h3 className="text-sm font-bold text-[#2C221E]">Catalog by Subject</h3>
-              <p className="text-xs text-[#7E6F64]">Titles per category</p>
+              <h3 className="text-sm font-bold text-[#14181F]">Catalog by Subject</h3>
+              <p className="text-xs text-[#6E737D]">Titles per category</p>
             </div>
             <button
               onClick={handleExportCatalogCsv}
-              className="text-xs text-[#c62828] hover:text-[#a61f1f] font-semibold flex items-center gap-1"
+              className="text-xs text-[#18362F] hover:text-[#112822] font-semibold flex items-center gap-1"
             >
               <Download className="w-3.5 h-3.5" />
               <span>CSV</span>
@@ -93,14 +92,14 @@ export const ReportsPage: React.FC = () => {
 
           <div className="space-y-3">
             {loading ? (
-              <p className="text-xs text-[#7E6F64]">Loading...</p>
+              <p className="text-xs text-[#6E737D]">Loading...</p>
             ) : Object.entries(categoryCounts).length === 0 ? (
-              <p className="text-xs text-[#7E6F64]">No titles cataloged yet.</p>
+              <p className="text-xs text-[#6E737D]">No titles cataloged yet.</p>
             ) : (
               Object.entries(categoryCounts).map(([category, count]) => (
-                <div key={category} className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-[#2C221E]">{category}</span>
-                  <span className="font-mono text-[#5A4D44] tabular-nums">{count} titles</span>
+                <div key={category} className="flex items-center justify-between text-xs py-1">
+                  <span className="font-semibold text-[#14181F]">{category}</span>
+                  <span className="font-mono text-[#4B5563] tabular-nums">{count} titles</span>
                 </div>
               ))
             )}

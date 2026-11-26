@@ -53,23 +53,23 @@ const BookCoverPreview: React.FC<{
 
   if (hasFailed || !currentSrc) {
     return (
-      <div className="w-20 aspect-2/3 rounded-lg bg-gradient-to-br from-[#EAE5DE] to-[#D5CEC5] border border-[#D4CDC3] flex flex-col items-center justify-between p-2 text-center text-[#5A4D44] shadow-xs select-none">
-        <span className="text-[8px] font-mono uppercase tracking-wider text-[#8C7E72] block w-full truncate">
+      <div className="w-20 aspect-2/3 rounded-lg bg-gradient-to-br from-[#ECEEF2] to-[#DDD7C5] border border-[#E5E7EB] flex flex-col items-center justify-between p-2 text-center text-[#4B5563] shadow-xs select-none">
+        <span className="text-[8px] font-mono uppercase tracking-wider text-[#6E737D] block w-full truncate">
           {category || 'Buku'}
         </span>
         <div className="my-auto flex flex-col items-center">
-          <BookOpen className="w-6 h-6 text-[#8C7E72] mb-1" />
-          <span className="text-[9px] font-bold leading-tight line-clamp-3 text-[#3E342D]">
+          <BookOpen className="w-6 h-6 text-[#6E737D] mb-1" />
+          <span className="text-[9px] font-bold leading-tight line-clamp-3 text-[#14181F]">
             {title || 'Cover Tidak Tersedia'}
           </span>
         </div>
-        <span className="text-[7px] text-[#A3968A] uppercase">Tanpa Cover</span>
+        <span className="text-[7px] text-[#9CA3AF] uppercase">Tanpa Cover</span>
       </div>
     );
   }
 
   return (
-    <div className="w-20 aspect-2/3 rounded-lg bg-[#F2EDE4] overflow-hidden shrink-0 border border-[#E5E0D8] shadow-xs relative">
+    <div className="w-20 aspect-2/3 rounded-lg bg-[#ECEEF2] overflow-hidden shrink-0 border border-[#E5E7EB] shadow-xs relative">
       <img
         src={currentSrc}
         alt={title}
@@ -307,13 +307,12 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
   };
 
   return (
-    <div className="space-y-6">
-      {/* Page Header */}
-      <div className="border-b border-[#EAE5DE] pb-4">
-        <h1 className="text-2xl font-bold tracking-tight text-[#2C221E] font-sans">
+    <div className="space-y-7 pb-6">
+      <div className="rounded-2xl bg-[#E4DFCE] px-5 py-5 sm:px-7 sm:py-6">
+        <h1 className="text-2xl font-extrabold tracking-tight text-[#14181F] font-sans sm:text-3xl">
           Smart ISBN Barcode Scanner
         </h1>
-        <p className="text-xs text-[#7E6F64]">
+        <p className="mt-2 max-w-2xl text-xs leading-relaxed text-[#4B5563] sm:text-sm">
           Katalog buku otomatis melalui scan barcode kamera atau input ISBN, dengan fallback Open Library, Google Books, dan Perpustakaan Jakarta.
         </p>
       </div>
@@ -388,9 +387,9 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
             <button
               type="button"
               onClick={() => handleIsbnLookup(isbnInput)}
-              className="px-2.5 py-1 bg-white border border-orange-300 hover:bg-orange-100/50 rounded text-[11px] font-semibold text-orange-900 shrink-0 inline-flex items-center gap-1"
+              className="inline-flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-xl bg-[#F06449] px-3 py-1.5 text-xs font-bold text-white shadow-xs transition hover:bg-[#D95338] active:scale-95"
             >
-              <RefreshCw className="w-3 h-3" />
+              <RefreshCw className="w-3.5 h-3.5" />
               <span>Coba Lagi</span>
             </button>
           )}
@@ -416,10 +415,10 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
           />
 
           {/* Manual ISBN Input Fallback */}
-          <div className="bg-white border border-[#E8E2D9] rounded-xl p-4 shadow-2xs">
+          <div className="bg-white border border-[#ECEEF2] rounded-xl p-4 shadow-2xs">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold text-[#2C221E]">Input ISBN Manual</span>
-              <span className="text-[11px] text-[#7E6F64]">Format EAN-13 atau ISBN-10</span>
+              <span className="text-xs font-bold text-[#14181F]">Input ISBN Manual</span>
+              <span className="text-[11px] text-[#6E737D]">Format EAN-13 atau ISBN-10</span>
             </div>
 
             <form
@@ -435,14 +434,14 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                   value={isbnInput}
                   onChange={(e) => setIsbnInput(e.target.value)}
                   placeholder="Contoh: 9780132350884 atau 0132350882"
-                  className="w-full px-3 py-2 text-xs font-mono bg-[#FAF8F5] border border-[#E5E0D8] rounded-lg focus:outline-hidden focus:border-[#c62828]"
+                  className="w-full px-3 py-2 text-xs font-mono bg-[#F5F6F8] border border-[#E5E7EB] rounded-lg focus:outline-hidden focus:border-[#18362F]"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={isProcessing || !isbnInput}
-                className="px-4 py-2 bg-[#c62828] hover:bg-[#a61f1f] disabled:opacity-50 text-white text-xs font-semibold rounded-lg shadow-2xs flex items-center gap-1.5 whitespace-nowrap"
+                className="px-4 py-2 bg-[#18362F] hover:bg-[#112822] disabled:opacity-50 text-white text-xs font-semibold rounded-lg shadow-2xs flex items-center gap-1.5 whitespace-nowrap"
               >
                 {isProcessing ? (
                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -455,8 +454,8 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
 
             {/* Quick Test Barcode Buttons (development only) */}
             {import.meta.env.DEV && (
-              <div className="mt-4 pt-3 border-t border-[#F0ECE4]">
-                <span className="block text-[11px] font-semibold text-[#7E6F64] mb-2">
+              <div className="mt-4 pt-3 border-t border-[#ECEEF2]">
+                <span className="block text-[11px] font-semibold text-[#6E737D] mb-2">
                   Barcode Contoh untuk Testing Langsung (1-Click Lookup):
                 </span>
                 <div className="flex flex-wrap gap-1.5">
@@ -468,7 +467,7 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                         setIsbnInput(s.isbn);
                         handleIsbnLookup(s.isbn);
                       }}
-                      className="px-2.5 py-1 text-[11px] bg-[#FAF8F5] hover:bg-[#fce4e4] border border-[#E5E0D8] hover:border-[#c62828]/40 text-[#4A3E35] rounded-md transition-colors font-mono"
+                      className="px-2.5 py-1 text-[11px] bg-[#F5F6F8] hover:bg-[#EEF5F1] border border-[#E5E7EB] hover:border-[#18362F]/40 text-[#374151] rounded-md transition-colors font-mono"
                     >
                       {s.title} ({s.isbn.slice(-4)})
                     </button>
@@ -484,10 +483,10 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
           {metadata ? (
             <form
               onSubmit={handleSaveBook}
-              className="bg-white border border-[#E8E2D9] rounded-xl p-5 shadow-2xs space-y-4"
+              className="bg-white border border-[#ECEEF2] rounded-xl p-5 shadow-2xs space-y-4"
             >
-              <div className="flex items-center justify-between pb-3 border-b border-[#F0ECE4]">
-                <div className="flex items-center gap-1.5 text-xs font-bold text-[#c62828]">
+              <div className="flex items-center justify-between pb-3 border-b border-[#ECEEF2]">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-[#18362F]">
                   <Sparkles className="w-4 h-4" />
                   <span>
                     {metadata.source === 'manual'
@@ -495,7 +494,7 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                       : 'Metadata Berhasil Diambil'}
                   </span>
                 </div>
-                <span className="text-[10px] font-mono uppercase bg-[#F2EDE4] px-2 py-0.5 rounded text-[#5A4D44]">
+                <span className="text-[10px] font-mono uppercase bg-[#ECEEF2] px-2 py-0.5 rounded text-[#4B5563]">
                   {getSourceBadgeLabel(metadata.source)}
                 </span>
               </div>
@@ -523,7 +522,7 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                   <button
                     type="button"
                     onClick={() => coverInputRef.current?.click()}
-                    className="group relative block w-20 aspect-2/3 overflow-hidden rounded-lg text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#c62828]"
+                    className="group relative block w-20 aspect-2/3 overflow-hidden rounded-lg text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#18362F]"
                     aria-label={metadata.coverUrl ? 'Ganti foto cover buku' : 'Unggah foto cover buku'}
                   >
                     <BookCoverPreview
@@ -547,7 +546,7 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                     type="text"
                     value={metadata.title}
                     onChange={(e) => setMetadata({ ...metadata, title: e.target.value })}
-                    className="w-full font-bold text-sm text-[#2C221E] border-b border-transparent hover:border-[#D4CDC3] focus:border-[#c62828] focus:outline-hidden"
+                    className="w-full font-bold text-sm text-[#14181F] border-b border-transparent hover:border-[#E5E7EB] focus:border-[#18362F] focus:outline-hidden"
                     placeholder="Judul Buku"
                     required
                   />
@@ -557,7 +556,7 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                     onChange={(e) =>
                       setMetadata({ ...metadata, subtitle: e.target.value || undefined })
                     }
-                    className="w-full text-xs text-[#7E6F64] italic border-b border-transparent hover:border-[#D4CDC3] focus:border-[#c62828] focus:outline-hidden"
+                    className="w-full text-xs text-[#6E737D] italic border-b border-transparent hover:border-[#E5E7EB] focus:border-[#18362F] focus:outline-hidden"
                     placeholder="Subjudul (opsional)"
                   />
                   <input
@@ -569,10 +568,10 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                         authors: e.target.value.split(',').map((s) => s.trim()),
                       })
                     }
-                    className="w-full text-xs text-[#7E6F64] border-b border-transparent hover:border-[#D4CDC3] focus:border-[#c62828] focus:outline-hidden"
+                    className="w-full text-xs text-[#6E737D] border-b border-transparent hover:border-[#E5E7EB] focus:border-[#18362F] focus:outline-hidden"
                     placeholder="Penulis (pisahkan dengan koma)"
                   />
-                  <div className="pt-1 text-[11px] font-mono text-[#A89F91]">
+                  <div className="pt-1 text-[11px] font-mono text-[#9CA3AF]">
                     ISBN: {formatIsbn(metadata.isbn13)}
                   </div>
                 </div>
@@ -581,19 +580,19 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
               {/* Editable Bibliographic Details */}
               <div className="grid grid-cols-3 gap-3 text-xs pt-2">
                 <div>
-                  <label className="block text-[11px] font-medium text-[#5A4D44] mb-1">
+                  <label className="block text-[11px] font-medium text-[#4B5563] mb-1">
                     Penerbit
                   </label>
                   <input
                     type="text"
                     value={metadata.publisher || ''}
                     onChange={(e) => setMetadata({ ...metadata, publisher: e.target.value })}
-                    className="w-full px-2.5 py-1.5 bg-[#FAF8F5] border border-[#E5E0D8] rounded-md text-xs"
+                    className="w-full px-2.5 py-1.5 bg-[#F5F6F8] border border-[#E5E7EB] rounded-md text-xs"
                     placeholder="Nama penerbit"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-medium text-[#5A4D44] mb-1">
+                  <label className="block text-[11px] font-medium text-[#4B5563] mb-1">
                     Tahun Terbit
                   </label>
                   <input
@@ -605,12 +604,12 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                         publicationYear: parseInt(e.target.value, 10) || undefined,
                       })
                     }
-                    className="w-full px-2.5 py-1.5 bg-[#FAF8F5] border border-[#E5E0D8] rounded-md text-xs font-mono"
+                    className="w-full px-2.5 py-1.5 bg-[#F5F6F8] border border-[#E5E7EB] rounded-md text-xs font-mono"
                     placeholder="Contoh: 2024"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-medium text-[#5A4D44] mb-1">
+                  <label className="block text-[11px] font-medium text-[#4B5563] mb-1">
                     Halaman
                   </label>
                   <input
@@ -622,14 +621,14 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                         pageCount: parseInt(e.target.value, 10) || undefined,
                       })
                     }
-                    className="w-full px-2.5 py-1.5 bg-[#FAF8F5] border border-[#E5E0D8] rounded-md text-xs font-mono"
+                    className="w-full px-2.5 py-1.5 bg-[#F5F6F8] border border-[#E5E7EB] rounded-md text-xs font-mono"
                     placeholder="Halaman"
                   />
                 </div>
               </div>
 
               <div className="text-xs">
-                <label className="block text-[11px] font-medium text-[#5A4D44] mb-1">
+                <label className="block text-[11px] font-medium text-[#4B5563] mb-1">
                   Sinopsis / Deskripsi
                 </label>
                 <textarea
@@ -638,26 +637,26 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                     setMetadata({ ...metadata, description: e.target.value || undefined })
                   }
                   rows={3}
-                  className="w-full px-2.5 py-1.5 bg-[#FAF8F5] border border-[#E5E0D8] rounded-md text-xs resize-y max-h-40"
+                  className="w-full px-2.5 py-1.5 bg-[#F5F6F8] border border-[#E5E7EB] rounded-md text-xs resize-y max-h-40"
                   placeholder="Ringkasan atau sinopsis buku"
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-medium text-[#5A4D44] mb-1">
+                <label className="block text-[11px] font-medium text-[#4B5563] mb-1">
                   Kategori Utama
                 </label>
                 <input
                   type="text"
                   value={metadata.categories[0] || ''}
                   onChange={(e) => setMetadata({ ...metadata, categories: [e.target.value] })}
-                  className="w-full px-2.5 py-1.5 bg-[#FAF8F5] border border-[#E5E0D8] rounded-md text-xs"
+                  className="w-full px-2.5 py-1.5 bg-[#F5F6F8] border border-[#E5E7EB] rounded-md text-xs"
                   placeholder="Contoh: Computer Science"
                 />
               </div>
 
               <div className="text-xs">
-                <label className="block text-[11px] font-medium text-[#5A4D44] mb-1">
+                <label className="block text-[11px] font-medium text-[#4B5563] mb-1">
                   Bahasa
                 </label>
                 <input
@@ -666,28 +665,28 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                   onChange={(e) =>
                     setMetadata({ ...metadata, language: e.target.value || undefined })
                   }
-                  className="w-full px-2.5 py-1.5 bg-[#FAF8F5] border border-[#E5E0D8] rounded-md text-xs"
+                  className="w-full px-2.5 py-1.5 bg-[#F5F6F8] border border-[#E5E7EB] rounded-md text-xs"
                   placeholder="Contoh: en / id"
                   maxLength={10}
                 />
               </div>
 
               {/* Form Action */}
-              <div className="pt-3 border-t border-[#F0ECE4] flex items-center justify-between">
+              <div className="pt-3 border-t border-[#ECEEF2] flex items-center justify-between">
                 <button
                   type="button"
                   onClick={() => {
                     setMetadata(null);
                     setLookupStatus(null);
                   }}
-                  className="px-3 py-1.5 text-xs text-[#7E6F64] hover:text-[#2C221E]"
+                  className="px-3 py-1.5 text-xs text-[#6E737D] hover:text-[#14181F]"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
                   disabled={isProcessing}
-                  className="px-4 py-2 bg-[#c62828] hover:bg-[#a61f1f] text-white text-xs font-semibold rounded-lg shadow-2xs flex items-center gap-1.5"
+                  className="px-4 py-2 bg-[#18362F] hover:bg-[#112822] text-white text-xs font-semibold rounded-lg shadow-2xs flex items-center gap-1.5"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Simpan ke Katalog</span>
@@ -695,14 +694,14 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
               </div>
             </form>
           ) : (
-            <div className="h-full min-h-[320px] bg-white border border-dashed border-[#D4CDC3] rounded-xl p-8 flex flex-col items-center justify-center text-center">
-              <div className="w-12 h-12 rounded-full bg-[#FAF8F5] border border-[#E5E0D8] flex items-center justify-center text-[#A89F91] mb-3">
+            <div className="h-full min-h-[320px] bg-white border border-dashed border-[#E5E7EB] rounded-xl p-8 flex flex-col items-center justify-center text-center">
+              <div className="w-12 h-12 rounded-full bg-[#F5F6F8] border border-[#E5E7EB] flex items-center justify-center text-[#9CA3AF] mb-3">
                 <BookOpen className="w-6 h-6" />
               </div>
-              <h3 className="text-sm font-bold text-[#2C221E] mb-1">
+              <h3 className="text-sm font-bold text-[#14181F] mb-1">
                 Area Pratinjau Metadata
               </h3>
-              <p className="text-xs text-[#7E6F64] max-w-xs leading-relaxed">
+              <p className="text-xs text-[#6E737D] max-w-xs leading-relaxed">
                 Pindai barcode buku atau masukkan ISBN untuk mencari metadata di Open Library, Google Books, dan katalog Perpustakaan Jakarta.
               </p>
             </div>

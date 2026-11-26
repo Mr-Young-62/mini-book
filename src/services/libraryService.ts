@@ -65,7 +65,7 @@ export class LibraryService {
   // Books & Bibliographic Data
   // --------------------------------------------------------------------------
 
-static async getBooks({ limit: take = 50, skip = 0 } = {}): Promise<Book[]> {
+  static async getBooks({ limit: take = 50, skip = 0 } = {}): Promise<Book[]> {
     if (isSupabaseConfigured) {
       if (!supabase) throw new Error('Supabase is configured but the client could not be initialized.');
       const { data, error: supabaseError } = await supabase
@@ -93,6 +93,38 @@ static async getBooks({ limit: take = 50, skip = 0 } = {}): Promise<Book[]> {
     // Local Storage Fallback
     const books: Book[] = getLocal(STORAGE_KEY_BOOKS, initialBooks);
     return books.filter((b) => !b.deleted_at);
+  }
+
+  /**
+   * Return every active book.
+   *
+   * The catalogue screens used to call `getBooks({ limit: 20, skip: 0 })`, so any
+   * book past the first 20 was silently invisible (list, search, category counts
+   * and report totals were all truncated). This pages through `getBooks` instead.
+   *
+   * The local-storage branch ignores `limit`/`skip` and returns everything at
+   * once, so the `added === 0` guard stops the loop as soon as a page brings no
+   * new ids — that also protects against a server that ignores `skip`.
+   */
+  static async getAllBooks(pageSize = 200): Promise<Book[]> {
+    const all: Book[] = [];
+    const seen = new Set<string>();
+    const maxPages = 500;
+
+    for (let skip = 0, pages = 0; pages < maxPages; skip += pageSize, pages += 1) {
+      const page = await LibraryService.getBooks({ limit: pageSize, skip });
+      let added = 0;
+      for (const book of page) {
+        if (seen.has(book.id)) continue;
+        seen.add(book.id);
+        all.push(book);
+        added += 1;
+      }
+      // Short page => no more data. No new ids => the source is not honouring skip.
+      if (page.length < pageSize || added === 0) break;
+    }
+
+    return all;
   }
 
   static async getBookByIsbn(isbn: string): Promise<Book | null> {
@@ -144,16 +176,19 @@ static async getBooks({ limit: take = 50, skip = 0 } = {}): Promise<Book[]> {
         }
         const byteArray = new Uint8Array(byteNumbers);
         const fileBlob = new Blob([byteArray], { type: 'image/jpeg' });
+        // Single filename for upload + public URL: previously Date.now() was called
+        // three times, so getPublicUrl() pointed at a file that was never uploaded.
+        const coverFileName = `${Date.now()}-${metadata.isbn13}.jpg`;
         const { data, error } = await supabase.storage.from(COVER_BUCKET).upload(
-          `${Date.now()}-${metadata.isbn13}.jpg`,
+          coverFileName,
           fileBlob,
           { contentType: 'image/jpeg' }
         );
         if (error) throw error;
         const { data: publicUrlData } = await supabase.storage.from(COVER_BUCKET).getPublicUrl(
-          `${Date.now()}-${metadata.isbn13}.jpg`
+          coverFileName
         );
-        coverPath = publicUrlData.publicUrl || `/${COVER_BUCKET}/${Date.now()}-${metadata.isbn13}.jpg`;
+        coverPath = publicUrlData.publicUrl || `/${COVER_BUCKET}/${coverFileName}`;
       } else {
         coverPath = normalizedCover;
       }

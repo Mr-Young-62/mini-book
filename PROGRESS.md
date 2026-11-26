@@ -1728,3 +1728,53 @@ git commit -m "security: harden RLS, secrets, CSV, and soft delete"
 - Jalankan `npx supabase db push` **setelah** backup — migration H, I, dan 28.3 baru akan aktif bersamaan.
 - Deploy client baru di setelah migrasi RPC (edit gagal di cloud kalau RPC belum ada).
 - Edit tidak mengubah `created_at`; hanya `updated_at`.
+
+---
+
+## 29. Audit kode baru + perbaikan bug B1–B4/B8 & ErrorBoundary — 25 November 2026
+
+> **Status: SELESAI (kode + docs) — belum commit.** Verifikasi eksekusi (tsc/test/build) **belum bisa dijalankan** karena shell `pwsh.exe` pada sesi ini terblokir `Access is denied (os error 5)`; perbaikan hanya diverifikasi lewat pembacaan ulang diff/file. Perubahan UI milik user (12 file termodifikasi di working tree) **tidak disentuh**.
+
+### 29.1 Konteks
+
+User melaporkan dua bug: (1) layar blank/putih setelah input buku lalu pindah menu; (2) metadata ISBN `9786026210470` ("Mahir Bahasa Inggris dari Nol") tidak ditemukan, padahal valid. Audit read-only juga menemukan B1–B8 (lihat summary percakapan sebelumnya).
+
+**Console browser (dari user):** tidak ada error React — hanya pesan ekstensi Firefox XrayWrapper dan log normal Vite HMR. Ini berarti layar putih **bukan crash JS** yang langsung terlihat; kemungkinan besar render error yang tak tertangkap (dan repo sebelumnya tidak punya ErrorBoundary).
+
+### 29.2 Perbaikan yang diterapkan
+
+| # | File | Perubahan | Alasan |
+|---|---|---|---|
+| B1 | `supabase/functions/book-metadata/index.ts` | Tambah `import { serve } from "https://deno.land/std@0.168.0/http/server.ts";` (baris 4). | `serve(...)` dipanggil baris 181 tapi tidak pernah di-import → `ReferenceError` saat deploy. Gaya disamakan dengan `send-update-push/index.ts`. |
+| B2 | `src/services/libraryService.ts` | Satu `coverFileName = \`${Date.now()}-${metadata.isbn13}.jpg\`` dipakai untuk `upload`, `getPublicUrl`, dan fallback path. | Sebelumnya `Date.now()` dipanggil 3× → URL publik menunjuk file yang tidak pernah di-upload (cover 404). |
+| B3 | `src/services/libraryService.ts`, `BookshelfPage.tsx`, `DashboardPage.tsx`, `ReportsPage.tsx` | Tambah `LibraryService.getAllBooks(pageSize=200)` yang mem-page lewat `getBooks` dengan guard `seen` (anti-duplikat / anti-skip-diabaikan) dan `maxPages`; ganti 3 call site `{limit:20,skip:0}` → `getAllBooks()`. Rapikan indentasi `getBooks`. | Buku ke-21+ tidak pernah tampil di Discover, Book Shelf, maupun Reports. |
+| B4 | `.github/workflows/ci.yml` | Pin `actions/checkout` dan `actions/setup-node` ke SHA yang sama dengan `android-release.yml`/`desktop-release.yml`; samakan `node-version: '22'` untuk lint+test. | Action unpinned melanggar kebijakan hardening Batch 5; node 22/24 mismatch tidak perlu. |
+| B8 | `src/components/scanner/BarcodeScanner.tsx` | Hapus `useEffect` duplikat yang mereset scan state saat `handleDecoded` berubah (dipicu `isProcessing`). Rapikan indentasi baris 118 dan 125. | Effect duplikat memanggil `resetScanState()` di tengah scan, berpotensi menghapus state deteksi secara acak. |
+| — | `src/components/ErrorBoundary.tsx` (baru), `src/main.tsx` | Tambah `ErrorBoundary` root yang menampilkan pesan error + `componentStack` + tombol Muat ulang/Coba lagi. | Repo sebelumnya tidak punya ErrorBoundary; satu render error = layar putih tanpa petunjuk. Ini defensif — membantu mendiagnosis bug blank yang dilaporkan user. |
+
+### 29.3 Temuan yang **tidak** diubah (dengan alasan)
+
+| # | Temuan | Keputusan |
+|---|---|---|
+| Bug metadata ISBN 9786026210470 | **Bukan bug kode lookup.** Open Library (by ISBN & by title) mengembalikan kosong untuk buku ini; Google Books API mengembalikan **429 quota `0`** karena `GOOGLE_BOOKS_API_KEY` tidak diset. | Butuh secret server-side `GOOGLE_BOOKS_API_KEY` (Supabase) dan/atau fallback pencarian by judul (belum disetujui). B1 sudah diperbaiki agar deploy berikutnya tidak `ReferenceError`. |
+| B5 `enable_signup=true` | **Bukan bug.** README baris 111–114 mendokumentasikan alur registrasi Member yang memang disengaja + trigger DB. | Biarkan. |
+| B6 commit messages kosong / PROGRESS belum tercatat | Entri ini menambahkan pencatatan. | Commit message butuh keputusan user saat commit. |
+| B7 npm audit 5 high (firebase chain) | Tidak disentuh. | Perlu keputusan upgrade; bisa punya breaking change. |
+| Bug blank putih (runtime) | **Belum terkonfirmasi akar penyebabnya.** Console user bersih dari error React; ErrorBoundary baru akan menampilkan pesan jika terjadi render error. | Menunggu user reproduksi ulang dengan build ini (atau kirim screenshot ErrorBoundary / console baru). Shell terblokir, jadi browser repro otomatis tidak bisa dijalankan. |
+| 12 file UI user (`git status` dirty) | **Tidak disentuh.** | Perubahan milik user. |
+
+### 29.4 Verifikasi
+
+| Pemeriksaan | Hasil |
+|---|---|
+| `tsc --noEmit` | **Belum dijalankan** — `pwsh.exe` Access denied |
+| `vitest run` | **Belum dijalankan** — `pwsh.exe` Access denied |
+| `vite build` | **Belum dijalankan** — `pwsh.exe` Access denied |
+| Pembacaan ulang diff/file yang diedit | PASS (B1 import ada, B2 satu filename, B3 call site terganti + `getAllBooks` ada, B4 SHA pinned, B8 effect duplikat hilang, ErrorBoundary terpasang di `main.tsx`) |
+
+### 29.5 Aksi user / langkah berikutnya
+
+1. **Coba ulang bug blank putih** dengan kode ini. Jika masih blank, ErrorBoundary seharusnya menampilkan pesan error merah — kirim screenshot/pesan itu.
+2. **Perbaiki metadata**: set `GOOGLE_BOOKS_API_KEY` di Supabase secrets, lalu deploy `book-metadata` (setelah B1). Untuk buku yang memang tak ada di OL/GB, pertimbangkan fallback pencarian judul.
+3. Jalankan verifikasi saat shell normal: `node node_modules/typescript/bin/tsc --noEmit`, `node node_modules/vitest/vitest.mjs run`, `node node_modules/vite/bin/vite.js build`.
+4. Commit — staging harus **selektif** karena 12 file UI Anda juga termodifikasi; jangan ikut commit file UI kecuali memang mau. Juga pastikan `.env` tidak ikut.
