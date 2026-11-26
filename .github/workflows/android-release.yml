@@ -42,7 +42,11 @@ jobs:
           echo "fcm=$([ -n "$FIREBASE_SERVICE_ACCOUNT" ] && [ -n "$FIREBASE_PROJECT_ID" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "webpush=$([ -n "$SUPABASE_FUNCTIONS_URL" ] && [ -n "$UPDATE_PUSH_SECRET" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "vercel=$([ -n "$VERCEL_TOKEN" ] && [ -n "$VERCEL_ORG_ID" ] && [ -n "$VERCEL_PROJECT_ID" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-          echo "signing=$([ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ] || [ -z "$ANDROID_KEYSTORE_PASSWORD" ] || [ -z "$ANDROID_KEY_ALIAS" ] || [ -z "$ANDROID_KEY_PASSWORD" ]; then
+            echo "::error::Android release signing requires ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD."
+            exit 1
+          fi
+          echo "signing=true" >> "$GITHUB_OUTPUT"
 
   build-and-release:
     needs: preflight
@@ -95,11 +99,8 @@ jobs:
           else
             echo "Google services JSON not configured; FCM will be unavailable."
           fi
-          if [ "$SIGNING" != "true" ]; then
-            echo "Release signing secrets are missing. Set ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, and ANDROID_KEY_PASSWORD in GitHub Actions secrets."
-            exit 1
-          fi
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/meeliefont-release.jks
+          test -s android/app/meeliefont-release.jks || (echo "::error::ANDROID_KEYSTORE_BASE64 did not decode to a non-empty keystore file." && exit 1)
           npx cap sync android
 
       - name: Authenticate to Google Cloud
