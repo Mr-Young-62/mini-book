@@ -76,3 +76,28 @@ export interface ScannedBookMetadata {
   categories: string[];
   source: 'open_library' | 'google_books' | 'jakarta_library' | 'manual' | 'local_database' | 'merged';
 }
+
+export type LoanStatus = 'borrowed' | 'overdue' | 'returned';
+
+export interface LoanRecord {
+  id: string;
+  owner_id?: string;
+  book_id?: string;
+  item_name: string;
+  borrower_name: string;
+  borrowed_at: string;
+  due_date: string;
+  returned_at?: string;
+  notes?: string;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface CreateLoanInput {
+  book_id?: string;
+  item_name: string;
+  borrower_name: string;
+  borrowed_at: string;
+  due_date: string;
+  notes?: string;
+}

@@ -345,12 +345,22 @@ useEffect(() => {
   };
 
   return (
-    <div className="flex flex-col gap-4 rounded-2xl border border-[#ECEEF2] bg-white p-4 shadow-2xs sm:p-5">
-      {/* Camera Viewfinder */}
-      <div className="relative overflow-hidden rounded-2xl bg-[#14181F] aspect-[4/3] shadow-inner">
+    <div className="flex flex-col gap-4 rounded-[20px] bg-[#F5F5F7] p-3.5 sm:p-5">
+      <div className="relative overflow-hidden rounded-[18px] bg-[#111214] aspect-[4/3]">
         <video ref={videoRef} className="h-full w-full object-cover" playsInline muted />
 
-        {/* Subtle Viewfinder Corner Brackets */}
+        {error && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#111214]/90 p-6 text-center text-white">
+            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-[16px] bg-white/10 text-[#C83E25]">
+              <Camera className="h-6 w-6" strokeWidth={1.5} aria-hidden="true" />
+            </div>
+            <p className="text-[15px] font-semibold">Kamera tidak bisa dibuka</p>
+            <p className="mt-1 max-w-xs text-[12px] sm:text-[13px] font-medium leading-[1.5] text-white/75">
+              Aktifkan izin kamera di browser, atau gunakan tombol Dari foto dan input ISBN di bawah.
+            </p>
+          </div>
+        )}
+
         <div className="pointer-events-none absolute inset-5">
           <span className="absolute left-0 top-0 h-5 w-5 rounded-tl-lg border-l-2 border-t-2 border-white/75" />
           <span className="absolute right-0 top-0 h-5 w-5 rounded-tr-lg border-r-2 border-t-2 border-white/75" />
@@ -358,42 +368,41 @@ useEffect(() => {
           <span className="absolute bottom-0 right-0 h-5 w-5 rounded-br-lg border-b-2 border-r-2 border-white/75" />
         </div>
 
-        {/* Status Pill */}
-        <div className="pointer-events-none absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 text-[10px] font-semibold text-white backdrop-blur-xs">
-          <span className={`h-1.5 w-1.5 rounded-full ${error ? 'bg-[#F06449]' : 'bg-emerald-400 animate-pulse'}`} />
-          <span>{error ? 'Camera Unavailable' : 'Live Scanner'}</span>
+        <div className="pointer-events-none absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-black/65 px-3 py-1 text-[12px] font-medium text-white">
+          <span className={`h-1.5 w-1.5 rounded-full ${error ? 'bg-[#C83E25]' : 'bg-emerald-400'}`} />
+          <span>{error ? 'Kamera tidak aktif' : 'Kamera aktif'}</span>
         </div>
 
-        {/* Laser Line */}
-        <div className="pointer-events-none absolute inset-x-8 top-1/2 h-0.5 -translate-y-1/2 rounded-full bg-[#F06449] shadow-[0_0_12px_rgba(240,100,73,0.9)]" />
+        {!error && (
+          <div className="pointer-events-none absolute inset-x-8 top-1/2 h-0.5 -translate-y-1/2 rounded-full bg-[#C83E25]/90" />
+        )}
       </div>
 
-      {/* Status / Error Message */}
       {error ? (
-        <div className="flex items-start gap-2.5 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-xs text-rose-800">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
-          <span className="leading-relaxed">{error}</span>
+        <div className="flex items-start gap-2.5 rounded-[14px] bg-[#FFF1EE] px-4 py-3 text-[13px] font-medium text-[#111214]">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-[#C83E25]" strokeWidth={1.5} aria-hidden="true" />
+          <span className="leading-[1.5]">{error}</span>
         </div>
       ) : (
-        <div className="flex items-center gap-2 rounded-xl bg-[#F5F6F8] px-3.5 py-2.5 text-xs text-[#4B5563]">
-          <Camera className="h-4 w-4 shrink-0 text-[#18362F]" />
+        <div className="flex items-center gap-2 rounded-[14px] bg-white px-4 py-3 text-[13px] font-medium text-[#2C2F36]">
+          <Camera className="h-4 w-4 shrink-0 text-[#18362F]" strokeWidth={1.5} aria-hidden="true" />
           <span>{hint}</span>
         </div>
       )}
 
       {rawValue && (
-        <div className="rounded-xl border border-[#ECEEF2] bg-[#F5F6F8] p-3 text-xs">
-          <div className="flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-wide text-[#6E737D]">
+        <div className="rounded-[16px] bg-white p-3.5 text-xs">
+          <div className="flex items-center justify-between gap-2 text-[12px] font-medium text-[#555961]">
             <span>Terakhir dibaca</span>
             <span>{detectedFormat || 'UNKNOWN'}</span>
           </div>
-          <div className="mt-1 break-all font-mono text-[#14181F]">{rawValue}</div>
+          <div className="mt-1 break-all font-mono text-[13px] text-[#111214]">{rawValue}</div>
         </div>
       )}
 
       {scanChoices.length > 0 && (
-        <div className="rounded-xl border border-[#ECEEF2] bg-[#F5F6F8] p-3 text-xs">
-          <div className="mb-2 text-[10px] font-bold uppercase tracking-wide text-[#6E737D]">
+        <div className="rounded-[16px] bg-white p-3.5 text-xs">
+          <div className="mb-2 text-[12px] font-semibold text-[#555961]">
             Pilih kode dari foto
           </div>
           <div className="space-y-2">
@@ -402,7 +411,7 @@ useEffect(() => {
                 key={`${choice.rawValue}-${index}`}
                 type="button"
                 onClick={() => chooseImageResult(choice)}
-                className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2 text-left font-mono text-[11px] text-[#14181F] transition hover:border-[#18362F]"
+                className="w-full rounded-[14px] bg-[#F5F5F7] px-3.5 py-2.5 text-left font-mono text-[12px] text-[#111214] hover:bg-[#EAEAEF]"
               >
                 {choice.format} · {choice.rawValue}
               </button>
@@ -411,33 +420,32 @@ useEffect(() => {
         </div>
       )}
 
-      {/* Scanner Controls */}
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
           onClick={toggleTorch}
-          className={`inline-flex min-h-[40px] items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold transition active:scale-95 ${
+          className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-[14px] px-4 py-2 text-[13px] font-semibold ${
             torchOn
-              ? 'bg-[#F06449] text-white shadow-[0_6px_14px_-4px_rgba(240,100,73,0.45)]'
-              : 'border border-[#E5E7EB] bg-[#F5F6F8] text-[#14181F] hover:bg-[#ECEEF2]'
+              ? 'bg-[#C83E25] text-white'
+              : 'bg-white text-[#111214] hover:bg-[#EAEAEF]'
           }`}
         >
-          <Flashlight className="h-3.5 w-3.5" />
-          <span>{torchOn ? 'Matikan Senter' : 'Senter'}</span>
+          <Flashlight className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+          <span>{torchOn ? 'Matikan senter' : 'Senter'}</span>
         </button>
 
         <button
           type="button"
           onClick={resetScanState}
-          className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-[#E5E7EB] bg-[#F5F6F8] px-3.5 py-2 text-xs font-semibold text-[#14181F] transition hover:bg-[#ECEEF2]"
+          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[14px] bg-white px-4 py-2 text-[13px] font-semibold text-[#111214] hover:bg-[#EAEAEF]"
         >
-          <RotateCcw className="h-3.5 w-3.5" />
-          <span>Reset</span>
+          <RotateCcw className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+          <span>Ulangi</span>
         </button>
 
-        <label className="inline-flex min-h-[40px] cursor-pointer items-center gap-1.5 rounded-xl border border-[#E5E7EB] bg-[#F5F6F8] px-3.5 py-2 text-xs font-semibold text-[#14181F] transition hover:bg-[#ECEEF2]">
-          <ImagePlus className="h-3.5 w-3.5" />
-          <span>Scan Foto</span>
+        <label className="inline-flex min-h-[44px] cursor-pointer items-center gap-1.5 rounded-[14px] bg-white px-4 py-2 text-[13px] font-semibold text-[#111214] hover:bg-[#EAEAEF]">
+          <ImagePlus className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+          <span>Dari foto</span>
           <input
             type="file"
             accept="image/*"
@@ -451,32 +459,31 @@ useEffect(() => {
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-[#E5E7EB] bg-white px-3.5 py-2 text-xs font-semibold text-[#6E737D] hover:bg-[#F5F6F8]"
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[14px] bg-white px-4 py-2 text-[13px] font-semibold text-[#555961] hover:bg-[#EAEAEF]"
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
             <span>Tutup</span>
           </button>
         )}
       </div>
 
-      {/* Quick Code Input */}
       <div className="flex gap-2 pt-1">
         <input
           value={manual}
           onChange={(e) => setManual(e.target.value)}
-          placeholder="Ketik ISBN / kode manual"
-          className="min-h-[42px] flex-1 rounded-xl border border-[#E5E7EB] bg-[#F5F6F8] px-3.5 py-2 text-xs text-[#14181F] placeholder-[#9CA3AF] outline-none focus:border-[#18362F] focus:bg-white"
+          placeholder="Ketik ISBN atau kode manual"
+          className="min-h-[48px] flex-1 rounded-full bg-white px-4 py-2 text-[15px] text-[#111214] placeholder-[#555961]"
           inputMode="text"
         />
         <button
           type="button"
-          className="inline-flex min-h-[42px] items-center gap-1.5 rounded-xl bg-[#18362F] px-4 py-2 text-xs font-bold text-white shadow-[0_6px_14px_-4px_rgba(24,54,47,0.35)] transition hover:bg-[#112822] hover:shadow-[0_8px_18px_-4px_rgba(24,54,47,0.45)] active:scale-95"
+          className="inline-flex min-h-[48px] items-center gap-1.5 rounded-full bg-[#18362F] px-5 py-2 text-sm font-semibold text-white hover:bg-[#112822]"
           onClick={() => {
             resetScanState();
             if (emitRef.current) emitRef.current(manual);
           }}
         >
-          <Search className="h-3.5 w-3.5" />
+          <Search className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
           <span>Cari</span>
         </button>
       </div>

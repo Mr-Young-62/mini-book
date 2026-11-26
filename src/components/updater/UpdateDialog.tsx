@@ -40,6 +40,16 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
   const downloading = download.phase === 'downloading';
   const percent = download.total > 0 ? Math.min(100, Math.round((download.received / download.total) * 100)) : 0;
 
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !forced && !downloading) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [forced, downloading, onClose]);
+
   const handleBrowserDownload = async () => {
     setBrowserError(null);
     try {
@@ -50,12 +60,22 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Pembaruan tersedia"
+      className="fixed inset-0 z-[95] flex items-center justify-center bg-black/60 p-4"
+    >
       <div className="w-full max-w-md rounded-2xl border border-[#ECEEF2] bg-white shadow-xl overflow-hidden">
         <div className="flex items-center justify-between border-b border-[#ECEEF2] bg-[#F5F6F8] px-5 py-3">
           <h2 className="text-sm font-bold text-[#14181F]">Pembaruan tersedia</h2>
-          <button type="button" onClick={onClose} className="text-[#6E737D] hover:text-[#14181F]">
-            <X className="h-4 w-4" />
+          <button
+            type="button"
+            aria-label="Tutup dialog pembaruan"
+            onClick={onClose}
+            className="text-[#6E737D] hover:text-[#14181F]"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
 
@@ -85,7 +105,7 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
           {downloading && (
             <div className="space-y-1">
               <div className="h-2 overflow-hidden rounded-full bg-[#ECEEF2]">
-                <div className="h-full bg-[#18362F] transition-all" style={{ width: `${percent}%` }} />
+                <div className="h-full bg-[#18362F] transition-[width]" style={{ width: `${percent}%` }} />
               </div>
               <div className="flex justify-between font-mono text-[10px] text-[#6E737D]">
                 <span>Mengunduh {percent}%</span>

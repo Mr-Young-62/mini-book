@@ -49,7 +49,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
         <div className="w-full max-w-lg rounded-2xl border border-[#ECEEF2] bg-white p-6 shadow-lg">
           <h1 className="text-lg font-bold text-[#14181F]">Terjadi kendala tampilan</h1>
           <p className="mt-2 text-sm leading-relaxed text-[#4B5563]">
-            Halaman ini berhenti karena sebuah error. Data Anda tidak hilang — muat ulang untuk
+            Halaman ini berhenti karena sebuah error. Data Anda tidak hilang. Muat ulang untuk
             melanjutkan, atau salin pesan di bawah saat melaporkan masalah.
           </p>
 

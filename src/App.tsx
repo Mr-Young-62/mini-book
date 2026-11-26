@@ -4,10 +4,11 @@ import { MainLayout } from './layouts/MainLayout';
 import { AuthPage } from './pages/AuthPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { BookshelfPage } from './pages/BookshelfPage';
+import { LoansPage } from './pages/LoansPage';
 import { ScannerPage } from './pages/ScannerPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { SettingsPage } from './pages/SettingsPage';
-import { UserRole } from './types/library';
+import { Book, UserRole } from './types/library';
 import { normalizeUserRole } from './lib/userRole';
 import { UpdateNotifications } from './components/UpdateNotifications';
 import { UpdateBanner } from './components/updater/UpdateBanner';
@@ -18,14 +19,19 @@ import { isSupabaseConfigured, resetSupabaseConfig, supabase } from './lib/supab
 import { LibraryService } from './services/libraryService';
 
 const allowedTabs: Record<UserRole, string[]> = {
-  Owner: ['dashboard', 'books', 'scanner', 'reports', 'settings'],
-  Administrator: ['dashboard', 'books', 'scanner', 'reports', 'settings'],
-  Librarian: ['dashboard', 'books', 'scanner', 'reports'],
-  Member: ['dashboard', 'books', 'scanner'],
+  Owner: ['dashboard', 'books', 'loans', 'scanner', 'reports', 'settings'],
+  Administrator: ['dashboard', 'books', 'loans', 'scanner', 'reports', 'settings'],
+  Librarian: ['dashboard', 'books', 'loans', 'scanner', 'reports'],
+  Member: ['dashboard', 'books', 'loans', 'scanner'],
 };
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
+  const [preselectedLoanBook, setPreselectedLoanBook] = useState<Book | null>(null);
+  const handleStartLoanForBook = (book: Book) => {
+    setPreselectedLoanBook(book);
+    setCurrentTab('loans');
+  };
   const [userRole, setUserRole] = useState<UserRole>('Administrator');
   const [appRefreshKey, setAppRefreshKey] = useState<number>(0);
   const [session, setSession] = useState<Session | null>(null);
@@ -88,7 +94,7 @@ export default function App() {
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
     void navigator.serviceWorker.register('/sw.js').catch(() => {
-      /* push unsupported or offline — banner flows still work */
+      /* push unsupported or offline: banner flows still work */
     });
     const onMessage = (event: MessageEvent) => {
       if (event.data && event.data.type === 'UPDATE_AVAILABLE') {
@@ -302,7 +308,6 @@ export default function App() {
         currentTab={activeTab}
         onSelectTab={setCurrentTab}
         userRole={activeRole}
-        onOpenQuickScan={() => setCurrentTab('scanner')}
         cloudMode={isSupabaseConfigured}
         onSignOut={isSupabaseConfigured ? handleSignOut : undefined}
       >
@@ -310,12 +315,21 @@ export default function App() {
           <DashboardPage
             userRole={activeRole}
             onNavigate={setCurrentTab}
+            onLendBook={handleStartLoanForBook}
           />
         )}
 
         {activeTab === 'books' && (
           <BookshelfPage
             onNavigateToScanner={() => setCurrentTab('scanner')}
+            onLendBook={handleStartLoanForBook}
+          />
+        )}
+
+        {activeTab === 'loans' && (
+          <LoansPage
+            initialBook={preselectedLoanBook}
+            onClearInitialBook={() => setPreselectedLoanBook(null)}
           />
         )}
 
