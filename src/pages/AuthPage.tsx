@@ -136,12 +136,12 @@ export const AuthPage: React.FC<AuthPageProps> = ({
   };
 
   return (
-    <main className="min-h-screen bg-[#E4DFCE] flex items-center justify-center p-4">
-      <section className="w-full max-w-sm rounded-3xl border border-[#ECEEF2] bg-white p-7 shadow-[0_18px_40px_-12px_rgba(20,24,31,0.12)]">
+    <main className="min-h-screen bg-[#F5F5F7] flex items-center justify-center p-4">
+      <section className="w-full max-w-sm rounded-3xl bg-white p-7 sm:p-8">
         <div className="mb-6 flex flex-col items-center gap-3">
           <img src={brandLogo} alt="MeelieFont" className="h-20 w-56 object-cover object-center" />
           <div className="text-center">
-            <p className="text-xs font-medium text-[#6E737D]">
+            <p className="text-xs font-medium text-[#555961]">
               {mode === 'login' ? 'Masuk ke akun perpustakaan' : 'Buat akun perpustakaan'}
             </p>
           </div>
@@ -150,26 +150,26 @@ export const AuthPage: React.FC<AuthPageProps> = ({
         {(message || error || notice || requestAccessNotice || requestAccessError) && (
           <div
             role={notice || requestAccessNotice ? 'status' : 'alert'}
-            className={`mb-4 flex gap-2 rounded-lg border p-3 text-xs ${
+            className={`mb-4 flex gap-2 rounded-xl p-3 text-xs ${
               notice || requestAccessNotice
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-                : 'border-rose-200 bg-rose-50 text-rose-900'
+                ? 'bg-emerald-50 text-emerald-900'
+                : 'bg-[#FFF1EE] text-[#111214]'
             }`}
           >
             {notice || requestAccessNotice
-              ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-700" />
-              : <ShieldAlert className="h-4 w-4 shrink-0" />}
+              ? <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-700" strokeWidth={1.6} aria-hidden="true" />
+              : <ShieldAlert className="h-4 w-4 shrink-0 text-[#C83E25]" strokeWidth={1.6} aria-hidden="true" />}
             <span>{error || requestAccessError || requestAccessNotice || notice || message}</span>
           </div>
         )}
 
         {!supabase ? (
-          <p className="text-sm text-[#4B5563]">
-            Koneksi Supabase belum tersedia. Periksa konfigurasi lingkungan aplikasi, lalu muat ulang halaman.
+          <p className="text-sm text-[#555961]">
+            Koneksi Supabase belum siap. Periksa URL dan kunci publik di menu Pengaturan.
           </p>
         ) : onSignOut ? (
           <div className="space-y-4">
-            <p className="text-sm text-[#4B5563]">
+            <p className="text-sm text-[#555961]">
               {canRequestAccess
                 ? 'Akun terautentikasi, tetapi belum memiliki role perpustakaan. Ajukan akses kepada administrator.'
                 : 'Role akun gagal dimuat. Periksa pesan di atas, lalu hubungi administrator.'}
@@ -181,22 +181,22 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                 disabled={requestAccessBusy}
                 className="inline-flex w-full min-h-[44px] items-center justify-center gap-2 rounded-xl bg-[#18362F] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#112822] disabled:opacity-60"
               >
-                {requestAccessBusy && <LoaderCircle className="h-4 w-4 animate-spin" />}
+                {requestAccessBusy && <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />}
                 Minta akses perpustakaan
               </button>
             )}
             <button
               type="button"
               onClick={onSignOut}
-              className="inline-flex w-full min-h-[44px] items-center justify-center gap-2 rounded-xl border border-[#E5E7EB] px-4 py-2 text-sm font-semibold text-[#14181F] hover:bg-[#F5F6F8]"
+              className="inline-flex w-full min-h-[44px] items-center justify-center gap-2 rounded-xl bg-[#F5F5F7] px-4 py-2 text-sm font-semibold text-[#111214] hover:bg-[#EAEAEF]"
             >
-              <LogOut className="h-4 w-4" /> Sign out
+              <LogOut className="h-4 w-4" strokeWidth={1.6} aria-hidden="true" /> Keluar
             </button>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             {mode === 'register' && (
-              <label className="block text-xs font-medium text-[#4B5563]">
+              <label className="block text-xs font-medium text-[#555961]">
                 Nama lengkap
                 <input
                   type="text"
@@ -206,11 +206,11 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                   required
                   value={fullName}
                   onChange={(event) => setFullName(event.target.value)}
-                  className="mt-1 w-full rounded-xl border border-[#E5E7EB] bg-[#F5F6F8] px-3 py-2.5 text-sm text-[#14181F]"
+                  className="mt-1 w-full rounded-xl bg-[#F5F5F7] px-3.5 py-2.5 text-sm text-[#111214]"
                 />
               </label>
             )}
-            <label className="block text-xs font-medium text-[#4B5563]">
+            <label className="block text-xs font-medium text-[#555961]">
               Email
               <input
                 type="email"
@@ -218,10 +218,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                 required
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
-                className="mt-1 w-full rounded-xl border border-[#E5E7EB] bg-[#F5F6F8] px-3 py-2.5 text-sm text-[#14181F]"
+                className="mt-1 w-full rounded-xl bg-[#F5F5F7] px-3.5 py-2.5 text-sm text-[#111214]"
               />
             </label>
-            <label className="block text-xs font-medium text-[#4B5563]">
+            <label className="block text-xs font-medium text-[#555961]">
               Password
               <input
                 type="password"
@@ -231,11 +231,11 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                 maxLength={72}
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                className="mt-1 w-full rounded-xl border border-[#E5E7EB] bg-[#F5F6F8] px-3 py-2.5 text-sm text-[#14181F]"
+                className="mt-1 w-full rounded-xl bg-[#F5F5F7] px-3.5 py-2.5 text-sm text-[#111214]"
               />
             </label>
             {mode === 'register' && (
-              <label className="block text-xs font-medium text-[#4B5563]">
+              <label className="block text-xs font-medium text-[#555961]">
                 Konfirmasi password
                 <input
                   type="password"
@@ -245,33 +245,30 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                   required
                   value={confirmPassword}
                   onChange={(event) => setConfirmPassword(event.target.value)}
-                  className="mt-1 w-full rounded-xl border border-[#E5E7EB] bg-[#F5F6F8] px-3 py-2.5 text-sm text-[#14181F]"
+                  className="mt-1 w-full rounded-xl bg-[#F5F5F7] px-3.5 py-2.5 text-sm text-[#111214]"
                 />
               </label>
             )}
             <button
               type="submit"
               disabled={submitting}
-              className="inline-flex w-full min-h-[44px] items-center justify-center gap-2 rounded-xl bg-[#18362F] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#112822] disabled:opacity-60"
+              className="inline-flex w-full min-h-[50px] items-center justify-center gap-2 rounded-full bg-[#18362F] px-5 text-sm font-semibold text-white hover:bg-[#112822] disabled:opacity-60"
             >
-              {submitting && <LoaderCircle className="h-4 w-4 animate-spin" />}
+              {submitting && <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />}
               {mode === 'login' ? 'Masuk' : 'Daftar'}
             </button>
-            <div className="relative py-1 text-center text-[11px] text-[#6E737D]">
-              <span className="bg-white px-2">atau</span>
-              <div className="absolute inset-x-0 top-1/2 -z-10 border-t border-[#ECEEF2]" />
-            </div>
+            <div className="py-1 text-center text-[12px] font-medium text-[#555961]">atau</div>
             <button
               type="button"
               onClick={() => void handleGoogleSignIn()}
               disabled={submitting}
-              className="inline-flex w-full min-h-[44px] items-center justify-center gap-2 rounded-xl border border-[#E5E7EB] bg-white px-4 py-2.5 text-sm font-semibold text-[#14181F] hover:bg-[#F5F6F8] disabled:opacity-60"
+              className="inline-flex w-full min-h-[48px] items-center justify-center gap-2 rounded-full bg-[#111214]/[0.05] px-5 text-sm font-semibold text-[#111214] hover:bg-[#111214]/[0.09] disabled:opacity-60"
             >
               <span aria-hidden="true" className="font-bold text-base text-[#4285F4]">G</span>
               Lanjutkan dengan Google
             </button>
-            <p className="text-center text-[11px] text-[#6E737D]">
-              Google OAuth langsung masuk tanpa kode verifikasi email tambahan.
+            <p className="text-center text-[11px] text-[#555961]">
+              Akun Google langsung masuk tanpa verifikasi email tambahan.
             </p>
             <p className="text-center text-[11px] leading-relaxed text-[#6E737D]">
               {mode === 'register'

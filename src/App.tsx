@@ -1,14 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, Suspense } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { MainLayout } from './layouts/MainLayout';
-import { AuthPage } from './pages/AuthPage';
-import { DashboardPage } from './pages/DashboardPage';
-import { BookshelfPage } from './pages/BookshelfPage';
-import { PinjamanPage } from './pages/PinjamanPage';
-import { ScannerPage } from './pages/ScannerPage';
-import { ReportsPage } from './pages/ReportsPage';
-import { SettingsPage } from './pages/SettingsPage';
-import { UserRole } from './types/library';
+import { Book, UserRole } from './types/library';
 import { getErrorMessage } from './lib/errorMessage';
 import { normalizeUserRole } from './lib/userRole';
 import { UpdateNotifications } from './components/UpdateNotifications';
@@ -20,15 +13,29 @@ import { isSupabaseConfigured, supabase } from './lib/supabase';
 import { LibraryService } from './services/libraryService';
 import { unsubscribeFromPush } from './services/pushService';
 
+// Lazy-loaded page components to reduce initial bundle size
+const Dashboard = React.lazy(() => import('./pages/DashboardPage').then(mod => ({ default: mod.DashboardPage })));
+const Bookshelf = React.lazy(() => import('./pages/BookshelfPage').then(mod => ({ default: mod.BookshelfPage })));
+const Loans = React.lazy(() => import('./pages/LoansPage').then(mod => ({ default: mod.LoansPage })));
+const Scanner = React.lazy(() => import('./pages/ScannerPage').then(mod => ({ default: mod.ScannerPage })));
+const Reports = React.lazy(() => import('./pages/ReportsPage').then(mod => ({ default: mod.ReportsPage })));
+const Settings = React.lazy(() => import('./pages/SettingsPage').then(mod => ({ default: mod.SettingsPage })));
+const Auth = React.lazy(() => import('./pages/AuthPage').then(mod => ({ default: mod.AuthPage })));
+
 const allowedTabs: Record<UserRole, string[]> = {
-  Owner: ['dashboard', 'books', 'pinjaman', 'scanner', 'reports', 'settings'],
-  Administrator: ['dashboard', 'books', 'pinjaman', 'scanner', 'reports', 'settings'],
-  Librarian: ['dashboard', 'books', 'pinjaman', 'scanner', 'reports', 'settings'],
-  Member: ['dashboard', 'books', 'pinjaman', 'scanner', 'settings'],
+  Owner: ['dashboard', 'books', 'loans', 'scanner', 'reports', 'settings'],
+  Administrator: ['dashboard', 'books', 'loans', 'scanner', 'reports', 'settings'],
+  Librarian: ['dashboard', 'books', 'loans', 'scanner', 'reports', 'settings'],
+  Member: ['dashboard', 'books', 'loans', 'scanner', 'settings'],
 };
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
+  const [preselectedLoanBook, setPreselectedLoanBook] = useState<Book | null>(null);
+  const handleStartLoanForBook = (book: Book) => {
+    setPreselectedLoanBook(book);
+    setCurrentTab('loans');
+  };
   const [userRole, setUserRole] = useState<UserRole>('Administrator');
   const [appRefreshKey, setAppRefreshKey] = useState<number>(0);
   const [session, setSession] = useState<Session | null>(null);
@@ -92,7 +99,7 @@ export default function App() {
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
     void navigator.serviceWorker.register('/sw.js').catch(() => {
-      /* push unsupported or offline — banner flows still work */
+      /* push unsupported or offline: banner flows still work */
     });
     const onMessage = (event: MessageEvent) => {
       if (event.data && event.data.type === 'UPDATE_AVAILABLE') {
@@ -257,7 +264,9 @@ export default function App() {
         <>
           <UpdateNotifications onUpdateSignal={updater.notifyFromPush} />
           {updaterUi}
-          <AuthPage supabase={null} message={authError} />
+          <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-sm text-[#7E6F64]">Loading...</div>}>
+            <Auth supabase={null} message={authError} />
+          </Suspense>
         </>
       );
     }
@@ -266,16 +275,18 @@ export default function App() {
         <>
           <UpdateNotifications onUpdateSignal={updater.notifyFromPush} />
           {updaterUi}
-          <AuthPage
-            supabase={supabase}
-            message={authError}
-            onSignOut={session ? handleSignOut : undefined}
-            canRequestAccess={Boolean(session && authError?.includes('belum memiliki role'))}
-            onRequestAccess={handleRequestAccess}
-            requestAccessBusy={accessRequestBusy}
-            requestAccessNotice={accessRequestNotice}
-            requestAccessError={accessRequestError}
-          />
+          <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-sm text-[#7E6F64]">Loading...</div>}>
+            <Auth
+              supabase={supabase}
+              message={authError}
+              onSignOut={session ? handleSignOut : undefined}
+              canRequestAccess={Boolean(session && authError?.includes('belum memiliki role'))}
+              onRequestAccess={handleRequestAccess}
+              requestAccessBusy={accessRequestBusy}
+              requestAccessNotice={accessRequestNotice}
+              requestAccessError={accessRequestError}
+            />
+          </Suspense>
         </>
       );
     }
@@ -306,33 +317,42 @@ export default function App() {
         cloudMode={isSupabaseConfigured}
         onSignOut={isSupabaseConfigured ? handleSignOut : undefined}
       >
-        {activeTab === 'dashboard' && (
-          <DashboardPage
-            userRole={activeRole}
-            onNavigate={setCurrentTab}
-          />
-        )}
+        <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-sm text-[#7E6F64]">Loading...</div>}>
+          {activeTab === 'dashboard' && (
+            <Dashboard
+              userRole={activeRole}
+              onNavigate={setCurrentTab}
+              onLendBook={handleStartLoanForBook}
+            />
+          )}
 
-        {activeTab === 'books' && (
-          <BookshelfPage
-            onNavigateToScanner={() => setCurrentTab('scanner')}
-          />
-        )}
+          {activeTab === 'books' && (
+            <Bookshelf
+              onNavigateToScanner={() => setCurrentTab('scanner')}
+              onLendBook={handleStartLoanForBook}
+            />
+          )}
 
-        {activeTab === 'pinjaman' && <PinjamanPage />}
+          {activeTab === 'loans' && (
+            <Loans
+              initialBook={preselectedLoanBook}
+              onClearInitialBook={() => setPreselectedLoanBook(null)}
+            />
+          )}
 
-        {activeTab === 'scanner' && (
-          <ScannerPage
-            onBookCataloged={handleBookCataloged}
-            onNavigateToBookshelf={() => setCurrentTab('books')}
-          />
-        )}
+          {activeTab === 'scanner' && (
+            <Scanner
+              onBookCataloged={handleBookCataloged}
+              onNavigateToBookshelf={() => setCurrentTab('books')}
+            />
+          )}
 
-        {activeTab === 'reports' && <ReportsPage />}
+          {activeTab === 'reports' && <Reports />}
 
-        {activeTab === 'settings' && (
-          <SettingsPage updater={updater} />
-        )}
+          {activeTab === 'settings' && (
+            <Settings updater={updater} />
+          )}
+        </Suspense>
       </MainLayout>
     </>
   );

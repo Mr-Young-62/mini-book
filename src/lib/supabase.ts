@@ -77,6 +77,16 @@ function refreshSupabaseClient(url: string, key: string): void {
   metadataSupabase = createSupabaseClient(url, key);
 }
 
+export function resetSupabaseConfig(): void {
+  try {
+    localStorage.removeItem('readowl_supabase_url');
+    localStorage.removeItem('readowl_supabase_key');
+  } catch {
+    // ignore storage failures
+  }
+  refreshSupabaseClient(envUrl, envKey);
+}
+
 /**
  * Configure or update Supabase credentials dynamically
  */

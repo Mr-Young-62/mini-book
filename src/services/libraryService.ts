@@ -2,8 +2,6 @@ import {
   Book,
   ActivityLog,
   LibrarySettings,
-  Loan,
-  LoanStatus,
   ScannedBookMetadata,
 } from '../types/library';
 import { getErrorMessage, getSupabaseErrorMessage } from '../lib/errorMessage';
@@ -13,7 +11,6 @@ import { cleanIsbn, isValidIsbn, normalizeToIsbn13 } from './isbnValidator';
 const COVER_BUCKET = 'book-covers';
 
 const STORAGE_KEY_BOOKS = 'readowl_data_books';
-const STORAGE_KEY_LOANS = 'readowl_data_loans';
 const STORAGE_KEY_LOGS = 'readowl_data_logs';
 const STORAGE_KEY_SETTINGS = 'readowl_data_settings';
 
@@ -32,7 +29,6 @@ export const defaultSettings: LibrarySettings = {
 // Initial clean library state (zero dummy records)
 const initialBooks: Book[] = [];
 const initialLogs: ActivityLog[] = [];
-const initialLoans: Loan[] = [];
 
 // Helper to load or initialize local storage database
 function getLocal<T>(key: string, defaultVal: T): T {
@@ -65,19 +61,7 @@ function normalizeCoverUrl(url?: string): string | undefined {
   return value.replace(/^http:\/\//i, 'https://');
 }
 
-export function getLoanStatus(dueDate?: string | null, returnDate?: string | null): LoanStatus {
-  if (returnDate) return 'returned';
-  if (!dueDate) return 'active';
-  const due = new Date(`${dueDate.slice(0, 10)}T00:00:00`);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return due < today ? 'overdue' : 'active';
-}
 
-export function validateLoanDates(loanDate?: string, dueDate?: string): void {
-  if (!loanDate || !dueDate) throw new Error('Tanggal pinjaman dan jatuh tempo wajib diisi.');
-  if (dueDate < loanDate) throw new Error('Tanggal jatuh tempo tidak boleh sebelum tanggal pinjaman.');
-}
 
 export class LibraryService {
   // --------------------------------------------------------------------------
@@ -386,11 +370,19 @@ export class LibraryService {
   }
 
   static async deleteBook(bookId: string): Promise<boolean> {
-    const activeLoan = (await this.getLoans()).find((loan) => loan.book_id === bookId && loan.status !== 'returned');
-    if (activeLoan) throw new Error('Buku tidak dapat diarsipkan karena masih sedang dipinjam.');
-
     if (isSupabaseConfigured) {
       if (!supabase) throw new Error('Supabase is configured but the client could not be initialized.');
+      const { data: activeLoan, error: loanError } = await supabase
+        .from('loans')
+        .select('id')
+        .eq('book_id', bookId)
+        .is('returned_at', null)
+        .maybeSingle();
+      if (loanError && loanError.code !== '42P01' && loanError.code !== 'PGRST205') {
+        throw new Error(getSupabaseErrorMessage(loanError));
+      }
+      if (activeLoan) throw new Error('Buku tidak dapat diarsipkan karena masih sedang dipinjam.');
+
       const { data, error } = await supabase
         .from('books')
         .update({ deleted_at: new Date().toISOString() })
@@ -403,6 +395,20 @@ export class LibraryService {
       await this.logActivity('BOOK_ARCHIVED', 'books', `Archived book record ${bookId}`);
       return true;
     }
+
+    let localActiveLoan = false;
+    try {
+      const raw = localStorage.getItem('readowl_data_loans');
+      const localLoans = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(localLoans)) {
+        localActiveLoan = localLoans.some(
+          (l: any) => l.book_id === bookId && !l.returned_at,
+        );
+      }
+    } catch {
+      // ignore malformed local loan data
+    }
+    if (localActiveLoan) throw new Error('Buku tidak dapat diarsipkan karena masih sedang dipinjam.');
 
     const books = getLocal<Book[]>(STORAGE_KEY_BOOKS, initialBooks);
     const book = books.find((b) => b.id === bookId && !b.deleted_at);
@@ -558,147 +564,6 @@ export class LibraryService {
     } catch (error) {
       console.error('Activity could not be recorded:', error);
     }
-  }
-
-  // --------------------------------------------------------------------------
-  // Loans (Pinjaman)
-  // --------------------------------------------------------------------------
-
-  static async getLoans(): Promise<Loan[]> {
-    if (isSupabaseConfigured) {
-      if (!supabase) throw new Error('Supabase is configured but the client could not be initialized.');
-      const { data, error } = await supabase
-        .from('loans')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (error) throw new Error(getSupabaseErrorMessage(error));
-      return (data || []).map((l: any) => ({
-        ...l,
-        status: getLoanStatus(l.due_date, l.return_date),
-      }));
-    }
-    return getLocal<Loan[]>(STORAGE_KEY_LOANS, initialLoans).map((l) => ({
-      ...l,
-      status: getLoanStatus(l.due_date, l.return_date),
-    }));
-  }
-
-  static async addLoan(loan: Omit<Loan, 'id' | 'created_at' | 'updated_at' | 'status'>): Promise<{ loan: Loan }> {
-    if (!loan.borrower_name.trim()) throw new Error('Nama peminjam wajib diisi.');
-    if (!loan.book_id) throw new Error('Buku wajib dipilih.');
-    validateLoanDates(loan.loan_date, loan.due_date);
-    const existingLoans = await this.getLoans();
-    if (existingLoans.some((item) => item.book_id === loan.book_id && item.status !== 'returned')) {
-      throw new Error('Buku ini sedang dipinjam.');
-    }
-    const now = new Date().toISOString();
-    const loanRecord: Loan = {
-      ...loan,
-      id: crypto.randomUUID(),
-      status: getLoanStatus(loan.due_date, undefined),
-      created_at: now,
-      updated_at: now,
-    };
-
-    if (isSupabaseConfigured) {
-      if (!supabase) throw new Error('Supabase is configured but the client could not be initialized.');
-      const { data, error } = await supabase
-        .from('loans')
-        .insert({
-          book_id: loanRecord.book_id,
-          borrower_name: loanRecord.borrower_name,
-          loan_date: loanRecord.loan_date,
-          due_date: loanRecord.due_date,
-          return_date: loanRecord.return_date || null,
-        })
-        .select()
-        .maybeSingle();
-      if (error) throw new Error(getSupabaseErrorMessage(error));
-      const savedLoan: Loan = { ...loanRecord, id: data.id, status: getLoanStatus(data.due_date, data.return_date) };
-      await this.logActivity('LOAN_ADDED', 'loans', `Pinjaman buku untuk "${savedLoan.borrower_name}"`);
-      return { loan: savedLoan };
-    }
-
-    const loans = getLocal<Loan[]>(STORAGE_KEY_LOANS, initialLoans);
-    loans.push(loanRecord);
-    try {
-      setLocal(STORAGE_KEY_LOANS, loans);
-    } catch (error) {
-      throw new Error(`Gagal menyimpan pinjaman: ${getErrorMessage(error)}`);
-    }
-    await this.logActivity('LOAN_ADDED', 'loans', `Pinjaman buku untuk "${loanRecord.borrower_name}"`);
-    return { loan: loanRecord };
-  }
-
-  static async updateLoan(id: string, updates: Partial<Pick<Loan, 'return_date' | 'borrower_name' | 'due_date'>>): Promise<Loan> {
-    if (updates.borrower_name !== undefined && !updates.borrower_name.trim()) {
-      throw new Error('Nama peminjam wajib diisi.');
-    }
-    if (updates.due_date) {
-      const current = (await this.getLoans()).find((loan) => loan.id === id);
-      if (!current) throw new Error('Pinjaman tidak ditemukan.');
-      validateLoanDates(current.loan_date, updates.due_date);
-    }
-
-    if (isSupabaseConfigured) {
-      if (!supabase) throw new Error('Supabase is configured but the client could not be initialized.');
-      const updateData: Record<string, unknown> = { ...updates, updated_at: new Date().toISOString() };
-      const { data, error } = await supabase
-        .from('loans')
-        .update(updateData)
-        .eq('id', id)
-        .select()
-        .maybeSingle();
-      if (error) throw new Error(getSupabaseErrorMessage(error));
-      if (!data) throw new Error('Pinjaman tidak ditemukan.');
-      const updatedLoan: Loan = { ...data, status: getLoanStatus(data.due_date, data.return_date) };
-      await this.logActivity('LOAN_UPDATED', 'loans', `Pinjaman diperbarui: ${updatedLoan.id}`);
-      return updatedLoan;
-    }
-
-    const loans = getLocal<Loan[]>(STORAGE_KEY_LOANS, initialLoans);
-    const index = loans.findIndex((l) => l.id === id);
-    if (index < 0) throw new Error('Pinjaman tidak ditemukan.');
-    const updated: Loan = {
-      ...loans[index],
-      ...updates,
-      updated_at: new Date().toISOString(),
-      status: updates.return_date ? 'returned' : getLoanStatus(updates.due_date || loans[index].due_date, updates.return_date || loans[index].return_date),
-    };
-    loans[index] = updated;
-    try {
-      setLocal(STORAGE_KEY_LOANS, loans);
-    } catch (error) {
-      throw new Error(`Gagal memperbarui pinjaman: ${getErrorMessage(error)}`);
-    }
-    await this.logActivity('LOAN_UPDATED', 'loans', `Pinjaman diperbarui: ${id}`);
-    return updated;
-  }
-
-  static async deleteLoan(id: string): Promise<boolean> {
-    if (isSupabaseConfigured) {
-      if (!supabase) throw new Error('Supabase is configured but the client could not be initialized.');
-      const { error } = await supabase.from('loans').delete().eq('id', id);
-      if (error) throw new Error(getSupabaseErrorMessage(error));
-      await this.logActivity('LOAN_DELETED', 'loans', `Pinjaman dihapus: ${id}`);
-      return true;
-    }
-
-    const loans = getLocal<Loan[]>(STORAGE_KEY_LOANS, initialLoans);
-    const index = loans.findIndex((l) => l.id === id);
-    if (index < 0) return false;
-    loans.splice(index, 1);
-    try {
-      setLocal(STORAGE_KEY_LOANS, loans);
-    } catch (error) {
-      throw new Error(`Gagal menghapus pinjaman: ${getErrorMessage(error)}`);
-    }
-    await this.logActivity('LOAN_DELETED', 'loans', `Pinjaman dihapus: ${id}`);
-    return true;
-  }
-
-  static async returnLoan(id: string): Promise<Loan> {
-    return this.updateLoan(id, { return_date: new Date().toISOString().slice(0, 10) });
   }
 
   // --------------------------------------------------------------------------

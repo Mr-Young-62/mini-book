@@ -1,9 +1,8 @@
 import React, { useRef, useState } from 'react';
 import {
   Search,
-  Sparkles,
-  BookOpen,
   CheckCircle2,
+  BookOpen,
   AlertCircle,
   RefreshCw,
   Plus,
@@ -19,67 +18,12 @@ import { LibraryService } from '../services/libraryService';
 import { ScannedBookMetadata, Book } from '../types/library';
 import type { ResolvedCode } from '../services/codeResolver';
 import { formatAddedAt } from '../lib/datetime';
+import { BookCard } from '../components/BookCard';
 
 interface ScannerPageProps {
   onBookCataloged: (bookId: string) => void;
   onNavigateToBookshelf: () => void;
 }
-
-// Resilient Book Cover Preview with Alternate URL and Visual Fallback (BUG-06 Fix)
-const BookCoverPreview: React.FC<{
-  coverUrl?: string;
-  alternateCoverUrl?: string;
-  title: string;
-  category?: string;
-}> = ({ coverUrl, alternateCoverUrl, title, category }) => {
-  const [currentSrc, setCurrentSrc] = useState<string | undefined>(coverUrl);
-  const [triedAlternate, setTriedAlternate] = useState<boolean>(false);
-  const [hasFailed, setHasFailed] = useState<boolean>(!coverUrl);
-
-  React.useEffect(() => {
-    setCurrentSrc(coverUrl);
-    setTriedAlternate(false);
-    setHasFailed(!coverUrl);
-  }, [coverUrl]);
-
-  const handleImageError = () => {
-    if (!triedAlternate && alternateCoverUrl && alternateCoverUrl !== currentSrc) {
-      setTriedAlternate(true);
-      setCurrentSrc(alternateCoverUrl);
-    } else {
-      setHasFailed(true);
-    }
-  };
-
-  if (hasFailed || !currentSrc) {
-    return (
-      <div className="w-20 aspect-2/3 rounded-lg bg-gradient-to-br from-[#ECEEF2] to-[#DDD7C5] border border-[#E5E7EB] flex flex-col items-center justify-between p-2 text-center text-[#4B5563] shadow-xs select-none">
-        <span className="text-[8px] font-mono uppercase tracking-wider text-[#6E737D] block w-full truncate">
-          {category || 'Buku'}
-        </span>
-        <div className="my-auto flex flex-col items-center">
-          <BookOpen className="w-6 h-6 text-[#6E737D] mb-1" />
-          <span className="text-[9px] font-bold leading-tight line-clamp-3 text-[#14181F]">
-            {title || 'Cover Tidak Tersedia'}
-          </span>
-        </div>
-        <span className="text-[7px] text-[#9CA3AF] uppercase">Tanpa Cover</span>
-      </div>
-    );
-  }
-
-  return (
-    <div className="w-20 aspect-2/3 rounded-lg bg-[#ECEEF2] overflow-hidden shrink-0 border border-[#E5E7EB] shadow-xs relative">
-      <img
-        src={currentSrc}
-        alt={title}
-        referrerPolicy="no-referrer"
-        className="w-full h-full object-cover transition-opacity duration-300"
-        onError={handleImageError}
-      />
-    </div>
-  );
-};
 
 async function prepareBookCover(file: File): Promise<string> {
   if (!file.type.startsWith('image/')) {
@@ -319,79 +263,75 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
   };
 
   return (
-    <div className="space-y-7 pb-6">
-      <div className="rounded-2xl bg-[#E4DFCE] px-5 py-5 sm:px-7 sm:py-6">
-        <h1 className="text-2xl font-extrabold tracking-tight text-[#14181F] font-sans sm:text-3xl">
-          Smart ISBN Barcode Scanner
+    <div className="space-y-6 sm:space-y-8 pb-8">
+      <div>
+        <h1 className="text-[28px] sm:text-[34px] font-bold tracking-[-0.02em] leading-[1.15] text-[#111214] font-sans">
+          Scan ISBN
         </h1>
-        <p className="mt-2 max-w-2xl text-xs leading-relaxed text-[#4B5563] sm:text-sm">
-          Katalog buku otomatis melalui scan barcode kamera atau input ISBN, dengan fallback Open Library, Google Books, dan Perpustakaan Jakarta.
+        <p className="mt-1.5 max-w-2xl text-[15px] sm:text-[16px] leading-[1.5] text-[#555961]">
+          Arahkan kamera ke barcode di sampul belakang buku, atau ketik nomor ISBN secara manual.
         </p>
       </div>
 
-      {/* Success Notification Banner */}
       {savedBook && (
-        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-emerald-950">
+        <div className="p-4 bg-emerald-50 rounded-[20px] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-emerald-950">
           <div className="flex items-center gap-2.5">
-            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+            <CheckCircle2 className="w-5 h-5 text-emerald-700 shrink-0" strokeWidth={1.5} aria-hidden="true" />
             <div>
-              <p className="text-xs font-bold">
-                Buku "{savedBook.title}" Berhasil Ditambahkan ke Katalog!
+              <p className="text-[15px] font-semibold">
+                "{savedBook.title}" berhasil disimpan ke rak.
               </p>
-              <p className="text-[11px] text-emerald-800">
-                Buku kini tersimpan di katalog · {formatAddedAt(savedBook.created_at)}.
+              <p className="text-[12px] sm:text-[13px] font-medium text-emerald-800">
+                Tercatat {formatAddedAt(savedBook.created_at)}.
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <button
+              type="button"
               onClick={() => onBookCataloged(savedBook.id)}
-              className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg shadow-2xs"
+              className="min-h-[44px] px-5 bg-[#18362F] hover:bg-[#112822] text-white text-xs font-semibold rounded-full"
             >
-              Lihat di Bookshelf
+              Lihat di Rak Buku
             </button>
             <button
+              type="button"
               onClick={handleScanAnother}
-              className="px-3 py-1.5 bg-white border border-emerald-200 text-xs font-medium text-emerald-800 hover:bg-emerald-100 rounded-lg"
+              className="min-h-[44px] px-4 bg-[#111214]/[0.05] text-xs font-semibold text-[#111214] hover:bg-[#111214]/[0.09] rounded-full"
             >
-              Scan Buku Lain
+              Scan buku lain
             </button>
           </div>
         </div>
       )}
 
-      {/* Classified Lookup Error or Info Banner (BUG-08 & BUG-05 Fix) */}
       {lookupStatus && (
         <div
-          className={`p-3.5 rounded-xl border flex items-start justify-between gap-3 text-xs ${
-            lookupStatus.type === 'invalid_isbn'
-              ? 'bg-rose-50 border-rose-200 text-rose-900'
-              : lookupStatus.type === 'not_found'
-              ? 'bg-amber-50 border-amber-200 text-amber-950'
-              : lookupStatus.type === 'network_error'
-              ? 'bg-red-50 border-red-200 text-red-950'
-              : 'bg-orange-50 border-orange-200 text-orange-950'
+          className={`p-4 rounded-[20px] flex items-start justify-between gap-3 text-xs ${
+            lookupStatus.type === 'invalid_isbn' || lookupStatus.type === 'network_error'
+              ? 'bg-[#FFF1EE] text-[#111214]'
+              : 'bg-[#F2EFE9] text-[#111214]'
           }`}
         >
           <div className="flex items-start gap-2.5">
             {lookupStatus.type === 'network_error' ? (
-              <WifiOff className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+              <WifiOff className="w-4 h-4 text-[#C83E25] shrink-0 mt-0.5" strokeWidth={1.5} aria-hidden="true" />
             ) : lookupStatus.type === 'not_found' ? (
-              <BookMarked className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <BookMarked className="w-4 h-4 text-[#18362F] shrink-0 mt-0.5" strokeWidth={1.5} aria-hidden="true" />
             ) : (
-              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <AlertCircle className="w-4 h-4 text-[#C83E25] shrink-0 mt-0.5" strokeWidth={1.5} aria-hidden="true" />
             )}
             <div>
-              <p className="font-semibold">
+              <p className="text-[15px] font-semibold">
                 {lookupStatus.type === 'not_found'
-                  ? 'Buku Tidak Ditemukan di Sumber Metadata'
+                  ? 'Buku tidak ditemukan di katalog daring'
                   : lookupStatus.type === 'invalid_isbn'
-                  ? 'Format ISBN Tidak Sesuai'
+                  ? 'Format ISBN tidak sesuai'
                   : lookupStatus.type === 'rate_limited'
-                  ? 'Batas Kuota API Tercapai'
-                  : 'Pemberitahuan Metadata'}
+                  ? 'Batas permintaan server tercapai'
+                  : 'Info pencarian'}
               </p>
-              <p className="mt-0.5 leading-relaxed text-[11px]">{lookupStatus.message}</p>
+              <p className="mt-0.5 leading-[1.5] text-[13px] font-medium text-[#555961]">{lookupStatus.message}</p>
             </div>
           </div>
 
@@ -399,20 +339,17 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
             <button
               type="button"
               onClick={() => handleIsbnLookup(isbnInput)}
-              className="inline-flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-xl bg-[#F06449] px-3 py-1.5 text-xs font-bold text-white shadow-xs transition hover:bg-[#D95338] active:scale-95"
+              className="inline-flex min-h-[42px] shrink-0 items-center gap-1.5 rounded-full bg-[#C83E25] px-4 text-xs font-bold text-white hover:bg-[#A8311C]"
             >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>Coba Lagi</span>
+              <RefreshCw className="w-3.5 h-3.5" strokeWidth={1.5} aria-hidden="true" />
+              <span>Coba lagi</span>
             </button>
           )}
         </div>
       )}
 
-      {/* Main Two-Column Scanner Interface */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Camera Scanner & Manual Input (7 cols) */}
         <div className="lg:col-span-7 space-y-4">
-          {/* Live Camera Scanner Component */}
           <BarcodeScanner
             onDetected={async (result: ResolvedCode) => {
               await handleResolvedScan(result);
@@ -426,11 +363,10 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
             }}
           />
 
-          {/* Manual ISBN Input Fallback */}
-          <div className="bg-white border border-[#ECEEF2] rounded-xl p-4 shadow-2xs">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold text-[#14181F]">Input ISBN Manual</span>
-              <span className="text-[11px] text-[#6E737D]">Format EAN-13 atau ISBN-10</span>
+          <div className="bg-[#F5F5F7] rounded-[20px] p-4 sm:p-5">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[15px] font-semibold text-[#111214]">Input ISBN manual</span>
+              <span className="text-[12px] sm:text-[13px] font-medium text-[#555961]">EAN-13 atau ISBN-10</span>
             </div>
 
             <form
@@ -445,22 +381,22 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                   type="text"
                   value={isbnInput}
                   onChange={(e) => setIsbnInput(e.target.value)}
-                  placeholder="Contoh: 9780132350884 atau 0132350882"
-                  className="w-full px-3 py-2 text-xs font-mono bg-[#F5F6F8] border border-[#E5E7EB] rounded-lg focus:outline-hidden focus:border-[#18362F]"
+                  placeholder="Contoh: 9780132350884"
+                  className="w-full min-h-[48px] px-4 py-2 text-[15px] font-mono bg-white rounded-full text-[#111214] placeholder-[#555961]"
                 />
               </div>
 
               <button
                 type="submit"
                 disabled={isProcessing || !isbnInput}
-                className="px-4 py-2 bg-[#18362F] hover:bg-[#112822] disabled:opacity-50 text-white text-xs font-semibold rounded-lg shadow-2xs flex items-center gap-1.5 whitespace-nowrap"
+                className="min-h-[48px] px-6 bg-[#18362F] hover:bg-[#112822] disabled:opacity-50 text-white text-sm font-semibold rounded-full flex items-center gap-2 whitespace-nowrap"
               >
                 {isProcessing ? (
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <RefreshCw className="w-4 h-4 animate-spin" aria-hidden="true" />
                 ) : (
-                  <Search className="w-3.5 h-3.5" />
+                  <Search className="w-4 h-4" strokeWidth={1.5} aria-hidden="true" />
                 )}
-                <span>Cari Buku</span>
+                <span>Cari buku</span>
               </button>
             </form>
 
@@ -490,23 +426,22 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
           </div>
         </div>
 
-        {/* Right Column: Retrieved Metadata Review (5 cols) */}
         <div className="lg:col-span-5">
           {metadata ? (
             <form
               onSubmit={handleSaveBook}
-              className="bg-white border border-[#ECEEF2] rounded-xl p-5 shadow-2xs space-y-4"
+              className="bg-[#F5F5F7] rounded-2xl p-5 space-y-4"
             >
-              <div className="flex items-center justify-between pb-3 border-b border-[#ECEEF2]">
+              <div className="flex items-center justify-between pb-2">
                 <div className="flex items-center gap-1.5 text-xs font-bold text-[#18362F]">
-                  <Sparkles className="w-4 h-4" />
+                  <CheckCircle2 className="w-4 h-4" strokeWidth={1.6} aria-hidden="true" />
                   <span>
                     {metadata.source === 'manual'
-                      ? 'Metadata Tidak Ditemukan — Isi Manual'
-                      : 'Metadata Berhasil Diambil'}
+                      ? 'Isi data buku manual'
+                      : 'Data buku ditemukan'}
                   </span>
                 </div>
-                <span className="text-[10px] font-mono uppercase bg-[#ECEEF2] px-2 py-0.5 rounded text-[#4B5563]">
+                <span className="text-[10px] font-mono uppercase bg-white px-2.5 py-1 rounded-full text-[#555961]">
                   {getSourceBadgeLabel(metadata.source)}
                 </span>
               </div>
@@ -534,17 +469,20 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                   <button
                     type="button"
                     onClick={() => coverInputRef.current?.click()}
-                    className="group relative block w-20 aspect-2/3 overflow-hidden rounded-lg text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#18362F]"
+                    className="group relative block w-20 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#18362F]"
                     aria-label={metadata.coverUrl ? 'Ganti foto cover buku' : 'Unggah foto cover buku'}
                   >
-                    <BookCoverPreview
+                    <BookCard
                       coverUrl={metadata.coverUrl}
                       alternateCoverUrl={metadata.alternateCoverUrl}
                       title={metadata.title}
-                      category={metadata.categories[0]}
+                      seed={metadata.isbn13 || metadata.title}
+                      size="sm"
+                      showRibbon={false}
+                      className="w-full"
                     />
-                    <span className="absolute inset-x-1 bottom-1 inline-flex items-center justify-center gap-1 rounded bg-black/60 px-1 py-1 text-[8px] font-semibold text-white">
-                      <ImagePlus className="h-3 w-3" />
+                    <span className="mt-1.5 inline-flex w-full items-center justify-center gap-1 rounded-[10px] bg-[#F5F2EC] px-1.5 py-1 text-[10px] font-semibold text-[#111214] group-hover:bg-[#ECE7DE]">
+                      <ImagePlus className="h-3 w-3" strokeWidth={1.5} aria-hidden="true" />
                       <span>{metadata.coverUrl ? 'Ganti foto' : 'Tambah foto'}</span>
                     </span>
                   </button>
@@ -583,7 +521,7 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                     className="w-full text-xs text-[#6E737D] border-b border-transparent hover:border-[#E5E7EB] focus:border-[#18362F] focus:outline-hidden"
                     placeholder="Penulis (pisahkan dengan koma)"
                   />
-                  <div className="pt-1 text-[11px] font-mono text-[#9CA3AF]">
+                  <div className="pt-1 text-[11px] font-mono text-[#6E737D]">
                     ISBN: {formatIsbn(metadata.isbn13)}
                   </div>
                 </div>
@@ -683,38 +621,37 @@ export const ScannerPage: React.FC<ScannerPageProps> = ({
                 />
               </div>
 
-              {/* Form Action */}
-              <div className="pt-3 border-t border-[#ECEEF2] flex items-center justify-between">
+              <div className="pt-3 flex items-center justify-between gap-2">
                 <button
                   type="button"
                   onClick={() => {
                     setMetadata(null);
                     setLookupStatus(null);
                   }}
-                  className="px-3 py-1.5 text-xs text-[#6E737D] hover:text-[#14181F]"
+                  className="min-h-[48px] px-5 rounded-full bg-[#111214]/[0.05] hover:bg-[#111214]/[0.09] text-sm font-semibold text-[#111214]"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
                   disabled={isProcessing}
-                  className="px-4 py-2 bg-[#18362F] hover:bg-[#112822] text-white text-xs font-semibold rounded-lg shadow-2xs flex items-center gap-1.5"
+                  className="min-h-[48px] px-6 bg-[#18362F] hover:bg-[#112822] text-white text-sm font-semibold rounded-full flex items-center gap-2"
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Simpan ke Katalog</span>
+                  <Plus className="w-4 h-4" strokeWidth={1.5} aria-hidden="true" />
+                  <span>Simpan ke rak</span>
                 </button>
               </div>
             </form>
           ) : (
-            <div className="h-full min-h-[320px] bg-white border border-dashed border-[#E5E7EB] rounded-xl p-8 flex flex-col items-center justify-center text-center">
-              <div className="w-12 h-12 rounded-full bg-[#F5F6F8] border border-[#E5E7EB] flex items-center justify-center text-[#9CA3AF] mb-3">
-                <BookOpen className="w-6 h-6" />
+            <div className="h-full min-h-[300px] bg-[#F5F5F7] rounded-[20px] p-8 flex flex-col items-center justify-center text-center">
+              <div className="w-12 h-12 rounded-[16px] bg-white flex items-center justify-center text-[#555961] mb-3">
+                <BookOpen className="w-6 h-6" strokeWidth={1.5} aria-hidden="true" />
               </div>
-              <h3 className="text-sm font-bold text-[#14181F] mb-1">
-                Area Pratinjau Metadata
-              </h3>
-              <p className="text-xs text-[#6E737D] max-w-xs leading-relaxed">
-                Pindai barcode buku atau masukkan ISBN untuk mencari metadata di Open Library, Google Books, dan katalog Perpustakaan Jakarta.
+              <h2 className="text-[18px] font-semibold text-[#111214] mb-1">
+                Pratinjau buku
+              </h2>
+              <p className="text-[15px] text-[#555961] max-w-xs leading-[1.5]">
+                Detail buku akan muncul di sini setelah barcode terbaca atau nomor ISBN dicari.
               </p>
             </div>
           )}
