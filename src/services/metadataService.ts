@@ -161,24 +161,24 @@ export async function fetchBookMetadataByIsbn(isbn: string): Promise<MetadataFet
       }
 
       if (data && (data as EdgeMetadataResponse).title && data.source) {
-      const metadata = mapEdgeResponse(data as EdgeMetadataResponse, isbn13, isbn10);
-      if (isCacheWorthy(metadata)) {
-        const result: MetadataFetchResult = {
+        const metadata = mapEdgeResponse(data as EdgeMetadataResponse, isbn13, isbn10);
+        if (isCacheWorthy(metadata)) {
+          const result: MetadataFetchResult = {
+            success: true,
+            metadata,
+            source: data.source,
+            alternateCoverUrl: data.alternateCoverUrl || metadata.alternateCoverUrl,
+          };
+          metadataCache.set(isbn13, result);
+          return result;
+        }
+        return {
           success: true,
           metadata,
           source: data.source,
           alternateCoverUrl: data.alternateCoverUrl || metadata.alternateCoverUrl,
         };
-        metadataCache.set(isbn13, result);
-        return result;
       }
-      return {
-        success: true,
-        metadata,
-        source: data.source,
-        alternateCoverUrl: data.alternateCoverUrl || metadata.alternateCoverUrl,
-      };
-    }
 
     return {
       success: false,
