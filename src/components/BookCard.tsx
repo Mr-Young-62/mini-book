@@ -1,8 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import { BookOpen } from 'lucide-react';
 import {
   BookPalette,
   extractBookPalette,
+  extractPaletteFromImageElement,
+  getCachedBookPalette,
   getFallbackBookPalette,
   normalizeCoverUrl,
 } from '../lib/bookColor';
@@ -18,6 +20,7 @@ interface BookCardProps {
   size?: BookCardSize;
   showRibbon?: boolean;
   priority?: boolean;
+  unavailable?: boolean;
   className?: string;
 }
 
@@ -37,30 +40,40 @@ export const BookCard: React.FC<BookCardProps> = ({
   size = 'md',
   showRibbon,
   priority = false,
+  unavailable = false,
   className = '',
 }) => {
   const paletteSeed = seed || title || 'book';
   const [activeSrc, setActiveSrc] = useState<string | undefined>(() =>
     normalizeCoverUrl(coverUrl),
   );
+  const [useCors, setUseCors] = useState(true);
   const [triedAlternate, setTriedAlternate] = useState(false);
   const [imgFailed, setImgFailed] = useState(() => !normalizeCoverUrl(coverUrl));
   const [fitMode, setFitMode] = useState<'contain' | 'cover'>('contain');
   const [palette, setPalette] = useState<BookPalette>(() =>
-    getFallbackBookPalette(paletteSeed),
+    getCachedBookPalette(coverUrl) ?? getFallbackBookPalette(paletteSeed),
   );
 
   useEffect(() => {
     const normalized = normalizeCoverUrl(coverUrl);
     setActiveSrc(normalized);
+    setUseCors(true);
     setTriedAlternate(false);
     setImgFailed(!normalized);
     setFitMode('contain');
-  }, [coverUrl]);
+    setPalette(getCachedBookPalette(normalized) ?? getFallbackBookPalette(paletteSeed));
+  }, [coverUrl, paletteSeed]);
 
   useEffect(() => {
+    if (!activeSrc) return;
+    const cached = getCachedBookPalette(activeSrc);
+    if (cached) {
+      setPalette(cached);
+      return;
+    }
+
     let cancelled = false;
-    setPalette(getFallbackBookPalette(paletteSeed));
     void extractBookPalette(activeSrc, paletteSeed).then((resolved) => {
       if (!cancelled) {
         setPalette(resolved);
@@ -72,9 +85,20 @@ export const BookCard: React.FC<BookCardProps> = ({
   }, [activeSrc, paletteSeed]);
 
   const handleImageError = () => {
+    if (useCors) {
+      setUseCors(false);
+      if (activeSrc) {
+        void extractBookPalette(activeSrc, paletteSeed).then((resolved) => {
+          setPalette(resolved);
+        });
+      }
+      return;
+    }
+
     const alt = normalizeCoverUrl(alternateCoverUrl);
     if (!triedAlternate && alt && alt !== activeSrc) {
       setTriedAlternate(true);
+      setUseCors(true);
       setActiveSrc(alt);
       setImgFailed(false);
       return;
@@ -85,44 +109,86 @@ export const BookCard: React.FC<BookCardProps> = ({
   const dims = IMAGE_DIMS[size];
   const hasImage = Boolean(activeSrc && !imgFailed);
   const renderRibbon = showRibbon ?? (size === 'sm' || size === 'md' || size === 'lg');
+  const rawUid = useId().replace(/[^a-zA-Z0-9_-]/g, '');
+  const spineGradId = `book-spine-${rawUid}`;
+  const pagesGradId = `book-pages-${rawUid}`;
+  const ribbonGradId = `book-ribbon-${rawUid}`;
 
   return (
-    <div className={`relative aspect-[136/223] select-none ${className}`}>
-      {/* Hardcover spine, curved C-wrap bottom, and cream page block (136x223 proportions) */}
+    <div
+      className={`relative aspect-[136/223] select-none transition-[filter,opacity,transform] duration-200 group-hover:-translate-y-0.5 drop-shadow-[0_4px_10px_rgba(38,41,37,0.08)] ${
+        unavailable ? 'grayscale opacity-65 saturate-0' : ''
+      } ${className}`}
+    >
+      {/* 3-tone hardcover geometry matching asset/book asset.svg with unobstructed front cover */}
       <svg
         viewBox="0 0 136 223"
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 h-full w-full"
       >
-        {/* Outer spine + continuous bottom wrap */}
+        <defs>
+          <linearGradient
+            id={spineGradId}
+            x1="67.5"
+            y1="0"
+            x2="67.5"
+            y2="214"
+            gradientUnits="userSpaceOnUse"
+          >
+            <stop stopColor={palette.spine} />
+            <stop offset="1" stopColor={palette.spineBottom} />
+          </linearGradient>
+          <linearGradient
+            id={pagesGradId}
+            x1="8"
+            y1="198"
+            x2="135"
+            y2="198"
+            gradientUnits="userSpaceOnUse"
+          >
+            <stop stopColor="#EED5B8" />
+            <stop offset="1" stopColor="#F1DDC5" />
+          </linearGradient>
+        </defs>
+
+        {/* Shadow 1: Rounded left spine + casing body */}
         <path
-          d="M 15 0 H 130 A 6 6 0 0 1 136 6 V 208 A 6 6 0 0 1 130 214 H 21 A 21 21 0 0 1 0 193 V 15 A 15 15 0 0 1 15 0 Z"
-          fill={palette.spine}
+          d="M128 0C131.866 0 135 3.13401 135 7V208C135 211.314 132.314 214 129 214H18C8.05887 214 0 205.941 0 196V16C0 7.16344 7.16344 0 16 0H128Z"
+          fill={`url(#${spineGradId})`}
         />
 
-        {/* Subtle front hardcover backing */}
+        {/* Base: Front cover surface */}
         <path
-          d="M 16 0 H 130 A 6 6 0 0 1 136 6 V 166 A 6 6 0 0 1 130 172 H 16 Z"
+          d="M129 0H12V182H135V6C135 2.68629 132.314 0 129 0Z"
           fill={hasImage ? palette.edge : palette.cover}
+        />
+
+        {/* Hinge crease seated on spine seam outside the artwork area */}
+        <rect x="10.5" y="0" width="1.5" height="182" fill="#000000" fillOpacity="0.16" />
+
+        {/* Shadow 2: Darkest curved bottom C-wrap */}
+        <path
+          d="M0 196C0 188.268 6.26801 182 14 182H135V208C135 211.314 132.314 214 129 214H18C8.05887 214 0 205.941 0 196Z"
+          fill={palette.bottomWrap}
         />
 
         {/* Cream page block tucked inside curved C-wrap */}
         <path
-          d="M 22 179 H 135 V 205 H 22 A 13 13 0 0 1 22 179 Z"
-          fill="#EFE3D0"
+          d="M8 198C8 193.029 12.0294 189 17 189H135V207H17C12.0294 207 8 202.971 8 198Z"
+          fill={`url(#${pagesGradId})`}
         />
-        <rect x="14" y="179" width="121" height="2.5" fill="#262925" fillOpacity="0.08" />
-        <line x1="16" y1="187.5" x2="134" y2="187.5" stroke="#DFCBB0" strokeWidth="1" />
-        <line x1="16" y1="196.5" x2="134" y2="196.5" stroke="#DFCBB0" strokeWidth="1" />
+        <rect x="13" y="189" width="122" height="1.5" fill="#262925" fillOpacity="0.06" />
+        <path d="M15 195H135" stroke="#DECBB0" />
+        <path d="M15 201H135" stroke="#DECBB0" />
       </svg>
 
-      {/* Flush cover artwork layer bound with hinge crease + subtle inset ring */}
+      {/* Flush cover artwork layer aligned to x=12..135, y=0..182 */}
       <div
         style={{
-          left: '11.7647%',
+          left: '8.8235%',
           top: 0,
-          right: 0,
-          height: '77.13%',
+          right: '0.7353%',
+          height: '81.6143%',
           borderRadius: dims.cornerRadius,
           backgroundColor: hasImage ? palette.edge : palette.cover,
         }}
@@ -134,6 +200,7 @@ export const BookCard: React.FC<BookCardProps> = ({
             alt={title}
             width={dims.width}
             height={dims.height}
+            crossOrigin={useCors ? 'anonymous' : undefined}
             referrerPolicy="no-referrer"
             loading={priority ? 'eager' : 'lazy'}
             fetchPriority={priority ? 'high' : undefined}
@@ -141,7 +208,13 @@ export const BookCard: React.FC<BookCardProps> = ({
               const { naturalWidth, naturalHeight } = event.currentTarget;
               if (naturalWidth > 0 && naturalHeight > 0) {
                 const ratio = naturalWidth / naturalHeight;
-                setFitMode(ratio >= 0.58 && ratio <= 0.78 ? 'cover' : 'contain');
+                setFitMode(ratio >= 0.64 && ratio <= 0.71 ? 'cover' : 'contain');
+              }
+              if (useCors) {
+                const derived = extractPaletteFromImageElement(event.currentTarget, activeSrc);
+                if (derived) {
+                  setPalette(derived);
+                }
               }
             }}
             onError={handleImageError}
@@ -168,30 +241,33 @@ export const BookCard: React.FC<BookCardProps> = ({
             )}
           </div>
         )}
-
-        {/* Delicate vertical binding hinge crease tying cover to spine */}
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-y-0 left-0 w-[3px] bg-black/[0.12]"
-        />
-        <span
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-y-0 left-[3px] w-px bg-white/25"
-        />
       </div>
 
-      {/* Foreground swallowtail bookmark ribbon with tucked fold shadow */}
+      {/* Compact foreground swallowtail bookmark ribbon with gradient & tucked fold shadow */}
       {renderRibbon && (
         <svg
           viewBox="0 0 136 223"
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 h-full w-full"
         >
+          <defs>
+            <linearGradient
+              id={ribbonGradId}
+              x1="107"
+              y1="193"
+              x2="107"
+              y2="220"
+              gradientUnits="userSpaceOnUse"
+            >
+              <stop stopColor={palette.ribbon} />
+              <stop offset="1" stopColor={palette.ribbonEnd} />
+            </linearGradient>
+          </defs>
           <path
-            d="M 98 179 H 116 V 221 L 107 215.5 L 98 221 Z"
-            fill={palette.ribbon}
+            d="M97 193H117V219.2C117 219.8 116.45 220.25 115.85 220.1L107 217.9L98.15 220.1C97.55 220.25 97 219.8 97 219.2V193Z"
+            fill={`url(#${ribbonGradId})`}
           />
-          <rect x="98" y="179" width="18" height="2.5" fill="#262925" fillOpacity="0.14" />
+          <rect x="97" y="193" width="20" height="1.8" fill="#262925" fillOpacity="0.12" />
         </svg>
       )}
     </div>

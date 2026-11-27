@@ -12,12 +12,14 @@ import {
   PanelLeftOpen,
 } from 'lucide-react';
 import { UserRole } from '../types/library';
+import { roleLabel } from '../lib/userRole';
 
 interface MainLayoutProps {
   currentTab: string;
   onSelectTab: (tab: string) => void;
   userRole: UserRole;
   cloudMode: boolean;
+  overdueCount?: number;
   onSignOut?: () => void;
   children: React.ReactNode;
 }
@@ -27,6 +29,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   onSelectTab,
   userRole,
   cloudMode,
+  overdueCount = 0,
   onSignOut,
   children,
 }) => {
@@ -69,11 +72,11 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   };
 
   const primaryNavItems = [
-    { id: 'dashboard', label: 'Discover', mobileLabel: 'Discover', icon: Home, roles: ['Owner', 'Administrator', 'Librarian', 'Member'] },
-    { id: 'books', label: 'Book Shelf', mobileLabel: 'Shelf', icon: Library, roles: ['Owner', 'Administrator', 'Librarian', 'Member'] },
-    { id: 'loans', label: 'Pinjaman Buku', mobileLabel: 'Loan', icon: CalendarClock, roles: ['Owner', 'Administrator', 'Librarian', 'Member'] },
-    { id: 'scanner', label: 'ISBN Scanner', mobileLabel: 'Scan', icon: QrCode, roles: ['Owner', 'Administrator', 'Librarian', 'Member'] },
-    { id: 'reports', label: 'Reports', mobileLabel: 'Reports', icon: BarChart3, roles: ['Owner', 'Administrator', 'Librarian'] },
+    { id: 'dashboard', label: 'Beranda', mobileLabel: 'Beranda', icon: Home, roles: ['Owner', 'Administrator', 'Librarian', 'Member'] },
+    { id: 'books', label: 'Rak Buku', mobileLabel: 'Rak', icon: Library, roles: ['Owner', 'Administrator', 'Librarian', 'Member'] },
+    { id: 'loans', label: 'Pinjaman', mobileLabel: 'Pinjaman', icon: CalendarClock, roles: ['Owner', 'Administrator', 'Librarian', 'Member'] },
+    { id: 'scanner', label: 'Pindai ISBN', mobileLabel: 'Pindai', icon: QrCode, roles: ['Owner', 'Administrator', 'Librarian', 'Member'] },
+    { id: 'reports', label: 'Laporan', mobileLabel: 'Laporan', icon: BarChart3, roles: ['Owner', 'Administrator', 'Librarian'] },
   ];
 
   const canAccessSettings = true;
@@ -83,8 +86,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   const byId = new Map(visiblePrimaryNav.map((item) => [item.id, item]));
   const settingsItem = {
     id: 'settings',
-    label: 'Settings',
-    mobileLabel: 'Setting',
+    label: 'Pengaturan',
+    mobileLabel: 'Atur',
     icon: SettingsIcon,
     roles: ['Owner', 'Administrator', 'Librarian', 'Member'],
   };
@@ -149,10 +152,20 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                   onClick={() => onSelectTab(item.id)}
                   className={`nav-item ${isActive ? 'active' : ''}`}
                 >
-                  <span className="nav-item-icon" aria-hidden="true">
+                  <span className="relative nav-item-icon" aria-hidden="true">
                     <Icon className="w-4 h-4" strokeWidth={1.5} />
+                    {item.id === 'loans' && overdueCount > 0 && sidebarCollapsed && (
+                      <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-[#B9543A]" />
+                    )}
                   </span>
-                  <span className="nav-item-label">{item.label}</span>
+                  <span className="nav-item-label reserve-bold" data-label={item.label}>
+                    {item.label}
+                  </span>
+                  {item.id === 'loans' && overdueCount > 0 && !sidebarCollapsed && (
+                    <span className="ml-auto rounded-full bg-[#B9543A] px-2 py-0.5 text-[11px] font-bold text-white tabular-nums">
+                      {overdueCount}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -164,16 +177,18 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
             {canAccessSettings && (
               <button
                 type="button"
-                aria-label="Settings"
+                aria-label="Pengaturan"
                 aria-current={currentTab === 'settings' ? 'page' : undefined}
-                title={sidebarCollapsed ? 'Settings' : undefined}
+                title={sidebarCollapsed ? 'Pengaturan' : undefined}
                 onClick={() => onSelectTab('settings')}
                 className={`nav-item ${currentTab === 'settings' ? 'active' : ''}`}
               >
                 <span className="nav-item-icon" aria-hidden="true">
                   <SettingsIcon className="w-4 h-4" strokeWidth={1.5} />
                 </span>
-                <span className="nav-item-label">Settings</span>
+                <span className="nav-item-label reserve-bold" data-label="Pengaturan">
+                  Pengaturan
+                </span>
               </button>
             )}
             {cloudMode && onSignOut && (
@@ -187,7 +202,9 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                 <span className="nav-item-icon" aria-hidden="true">
                   <LogOut className="w-4 h-4" strokeWidth={1.5} />
                 </span>
-                <span className="nav-item-label">Keluar</span>
+                <span className="nav-item-label reserve-bold" data-label="Keluar">
+                  Keluar
+                </span>
               </button>
             )}
           </div>
@@ -214,24 +231,24 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                 type="button"
                 onClick={() => onSelectTab('reports')}
                 aria-label="Laporan"
-                className={`tablet-mobile-only min-h-[44px] items-center gap-1.5 rounded-[10px] px-3.5 text-xs font-semibold ${
+                className={`tablet-mobile-only min-h-[38px] items-center gap-1.5 rounded-[12px] px-3.5 text-[12px] font-semibold ${
                   currentTab === 'reports'
-                    ? 'bg-[#24483D] text-white'
-                    : 'bg-[#F1EDE4] text-[#262925] hover:bg-[#E7E1D5]'
+                    ? 'bg-[#1F6F5B] text-white'
+                    : 'bg-white shadow-[0_1px_2px_rgba(38,41,37,0.06)] text-[#262925] hover:bg-[#ECE8DF]'
                 }`}
               >
                 <BarChart3 className="w-3.5 h-3.5" strokeWidth={1.5} aria-hidden="true" />
                 <span>Laporan</span>
               </button>
             )}
-            <span className="hidden sm:inline-flex items-center rounded-[10px] bg-[#F1EDE4] px-3.5 py-1.5 text-xs font-medium text-[#363A34]">
-              {userRole}
+            <span className="hidden sm:inline-flex items-center rounded-[12px] bg-white/90 shadow-[0_1px_2px_rgba(38,41,37,0.04)] px-3.5 py-1.5 text-xs font-medium text-[#363A34]">
+              {roleLabel[userRole]}
             </span>
             {cloudMode && onSignOut && (
               <button
                 type="button"
                 aria-label="Keluar"
-                className="scan-button sign-out-btn"
+                className="scan-button sign-out-btn tablet-mobile-only"
                 onClick={onSignOut}
               >
                 <LogOut className="w-4 h-4 sm:hidden" strokeWidth={1.5} aria-hidden="true" />
@@ -289,7 +306,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                   isActive ? 'active' : ''
                 }`}
               >
-                <span className="mobile-tab-icon-wrap" aria-hidden="true">
+                <span className="relative mobile-tab-icon-wrap" aria-hidden="true">
                   {isCenter ? (
                     <span className="mobile-scan-badge">
                       <Icon
@@ -298,10 +315,17 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                       />
                     </span>
                   ) : (
-                    <Icon
-                      className="w-5 h-5"
-                      strokeWidth={isActive ? 2 : 1.5}
-                    />
+                    <>
+                      <Icon
+                        className="w-5 h-5"
+                        strokeWidth={isActive ? 2 : 1.5}
+                      />
+                      {item.id === 'loans' && overdueCount > 0 && (
+                        <span className="absolute -right-2 -top-1.5 min-w-[16px] h-4 rounded-full bg-[#B9543A] px-1 text-[10px] font-bold text-white tabular-nums flex items-center justify-center">
+                          {overdueCount > 9 ? '9+' : overdueCount}
+                        </span>
+                      )}
+                    </>
                   )}
                 </span>
                 {!isCenter && (

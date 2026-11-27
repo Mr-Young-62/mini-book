@@ -1,6 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  BookOpen,
   CalendarClock,
   Search,
   Grid,
@@ -14,10 +13,17 @@ import {
   X,
 } from 'lucide-react';
 import { LibraryService } from '../services/libraryService';
-import { Book, ScannedBookMetadata } from '../types/library';
+import { LoanService } from '../services/loanService';
+import { Book, LoanRecord, ScannedBookMetadata } from '../types/library';
 import { formatIsbn, isValidIsbn, normalizeToIsbn13 } from '../services/isbnValidator';
 import { formatAddedAt } from '../lib/datetime';
+import { BookStockInfo, getActiveLoanCountByBook, getBookStockInfo, normalizeStockCount } from '../lib/stock';
 import { BookCard } from '../components/BookCard';
+import { useToast } from '../components/ToastProvider';
+import {
+  EmptySearchIllustration,
+  ReadingCornerEmptyIllustration,
+} from '../components/LibraryIllustrations';
 
 const formatAuthorList = (authors?: { name: string }[]): string => {
   const clean = (authors ?? [])
@@ -44,6 +50,7 @@ const EditBookForm: React.FC<EditBookFormProps> = ({ book, onSave }) => {
     publicationYear: book.publication_year?.toString() ?? '',
     language: book.language ?? 'en',
     pageCount: book.page_count?.toString() ?? '',
+    stockCount: normalizeStockCount(book.stock_count).toString(),
     isbn10: book.isbn_10 ?? '',
     isbn13: book.isbn_13,
     categories: book.categories.map((category) => category.name).join(', '),
@@ -72,6 +79,11 @@ const EditBookForm: React.FC<EditBookFormProps> = ({ book, onSave }) => {
       setValidationError('Judul buku wajib diisi.');
       return;
     }
+    const parsedStock = parsePositiveInt(form.stockCount);
+    if (!parsedStock) {
+      setValidationError('Jumlah eksemplar minimal 1.');
+      return;
+    }
     setValidationError(null);
     onSave({
       title: form.title.trim(),
@@ -81,6 +93,7 @@ const EditBookForm: React.FC<EditBookFormProps> = ({ book, onSave }) => {
       publicationYear: parsePositiveInt(form.publicationYear),
       language: form.language.trim() || 'en',
       pageCount: parsePositiveInt(form.pageCount),
+      stockCount: parsedStock,
       isbn10: form.isbn10.trim() || undefined,
       isbn13,
       description: form.description.trim() || undefined,
@@ -91,8 +104,8 @@ const EditBookForm: React.FC<EditBookFormProps> = ({ book, onSave }) => {
   };
 
   const inputClass =
-    'w-full px-3 py-2 text-xs rounded-[10px] bg-[#FAF8F3] text-[#262925] focus:bg-white';
-  const labelClass = 'block text-xs font-medium text-[#575B54] mb-1';
+    'w-full px-3 py-2 text-xs rounded-[12px] bg-[#F2EFE8] text-[#262925] focus:bg-[#ECE8DF] focus:outline-none focus:ring-2 focus:ring-[#1F6F5B]/25';
+  const labelClass = 'block text-xs font-medium text-[#686C65] mb-1';
 
   return (
     <form id="edit-book-form" onSubmit={submit} className="space-y-3">
@@ -122,20 +135,24 @@ const EditBookForm: React.FC<EditBookFormProps> = ({ book, onSave }) => {
           <input className={inputClass} value={form.publisher} onChange={(e) => setField('publisher', e.target.value)} />
         </label>
         <label>
-          <span className={labelClass}>ISBN-10</span>
-          <input className={inputClass} value={form.isbn10} onChange={(e) => setField('isbn10', e.target.value)} />
+          <span className={labelClass}><span className="acronym">ISBN-10</span></span>
+          <input className={`${inputClass} font-mono`} value={form.isbn10} onChange={(e) => setField('isbn10', e.target.value)} />
         </label>
         <label>
-          <span className={labelClass}>ISBN-13</span>
+          <span className={labelClass}><span className="acronym">ISBN-13</span></span>
           <input className={`${inputClass} font-mono`} value={form.isbn13} onChange={(e) => setField('isbn13', e.target.value)} />
         </label>
         <label>
           <span className={labelClass}>Tahun Terbit</span>
-          <input className={`${inputClass} font-mono`} value={form.publicationYear} onChange={(e) => setField('publicationYear', e.target.value)} />
+          <input className={`${inputClass} tabular-nums`} value={form.publicationYear} onChange={(e) => setField('publicationYear', e.target.value)} />
         </label>
         <label>
           <span className={labelClass}>Jumlah Halaman</span>
-          <input className={`${inputClass} font-mono`} value={form.pageCount} onChange={(e) => setField('pageCount', e.target.value)} />
+          <input className={`${inputClass} tabular-nums`} value={form.pageCount} onChange={(e) => setField('pageCount', e.target.value)} />
+        </label>
+        <label>
+          <span className={labelClass}>Jumlah Eksemplar</span>
+          <input type="number" min={1} className={`${inputClass} tabular-nums`} value={form.stockCount} onChange={(e) => setField('stockCount', e.target.value)} />
         </label>
         <label>
           <span className={labelClass}>Bahasa</span>
@@ -146,7 +163,7 @@ const EditBookForm: React.FC<EditBookFormProps> = ({ book, onSave }) => {
           <input className={inputClass} value={form.categories} onChange={(e) => setField('categories', e.target.value)} />
         </label>
         <label className="sm:col-span-2">
-          <span className={labelClass}>URL Cover</span>
+          <span className={labelClass}>URL Sampul</span>
           <input className={inputClass} value={form.coverUrl} onChange={(e) => setField('coverUrl', e.target.value)} />
         </label>
         <label className="sm:col-span-2">
@@ -171,8 +188,10 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
   onNavigateToScanner,
   onLendBook,
 }) => {
+  const { notify } = useToast();
   const currency = LibraryService.getSettings().library_info.currency || 'IDR';
   const [books, setBooks] = useState<Book[]>([]);
+  const [loans, setLoans] = useState<LoanRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -181,6 +200,14 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
   const [showArchived, setShowArchived] = useState(false);
   const [archivedBooks, setArchivedBooks] = useState<Book[]>([]);
   const [archivedLoading, setArchivedLoading] = useState(false);
+  const shelfContainerRef = useRef<HTMLDivElement>(null);
+  const [booksPerShelf, setBooksPerShelf] = useState<number>(() => {
+    if (typeof window === 'undefined') return 6;
+    const w = window.innerWidth;
+    if (w < 640) return Math.max(2, Math.floor((w - 40) / 130));
+    if (w < 768) return Math.max(3, Math.floor((w - 56) / 152));
+    return Math.max(4, Math.floor((w - 280) / 168));
+  });
 
   // Selected book for detailed inspection modal
   const [activeBook, setActiveBook] = useState<Book | null>(null);
@@ -211,8 +238,12 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
     setLoading(true);
     setLoadError(null);
     try {
-      const data = await LibraryService.getAllBooks();
+      const [data, loanRes] = await Promise.all([
+        LibraryService.getAllBooks(),
+        LoanService.getLoans().catch(() => ({ loans: [] as LoanRecord[], localFallback: false })),
+      ]);
       setBooks(data);
+      setLoans(loanRes.loans);
     } catch (err) {
       console.error('Error fetching books:', err);
       setLoadError(err instanceof Error ? err.message : 'Gagal memuat daftar buku.');
@@ -220,6 +251,11 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
       setLoading(false);
     }
   };
+
+  const activeLoanCountMap = useMemo(
+    () => getActiveLoanCountByBook(loans),
+    [loans],
+  );
 
   const categories = Array.from(
     new Set(books.flatMap((b) => b.categories.map((c) => c.name)))
@@ -242,6 +278,75 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
 
     return matchesSearch && matchesCategory;
   });
+
+  useEffect(() => {
+    if (viewMode !== 'shelf' || loading || loadError || filteredBooks.length === 0) return;
+    const container = shelfContainerRef.current;
+    if (!container) return;
+
+    const computePerShelf = (width: number) => {
+      if (width <= 0) return;
+      const vw = typeof window !== 'undefined' ? window.innerWidth : width;
+      let itemWidth = 144;
+      let gap = 24;
+      let min = 4;
+      if (vw < 640) {
+        itemWidth = 114;
+        gap = 16;
+        min = 2;
+      } else if (vw < 768) {
+        itemWidth = 128;
+        gap = 24;
+        min = 3;
+      }
+      const usableWidth = Math.max(0, width - 16);
+      const next = Math.max(min, Math.floor((usableWidth + gap) / (itemWidth + gap)));
+      setBooksPerShelf((prev) => (prev === next ? prev : next));
+    };
+
+    computePerShelf(container.clientWidth);
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        computePerShelf(entry.contentRect.width);
+      }
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [viewMode, loading, loadError, filteredBooks.length]);
+
+  const { totalCopies, totalAvailableCopies } = useMemo(() => {
+    let total = 0;
+    let available = 0;
+    for (const book of filteredBooks) {
+      const stock = getBookStockInfo(book, activeLoanCountMap.get(book.id) ?? 0);
+      total += stock.total;
+      available += stock.available;
+    }
+    return { totalCopies: total, totalAvailableCopies: available };
+  }, [filteredBooks, activeLoanCountMap]);
+
+  const renderStockBadge = (stock: BookStockInfo) => {
+    if (stock.isOutOfStock) {
+      return (
+        <span className="inline-flex items-center rounded-[8px] bg-[#ECE8DF] px-2 py-0.5 text-[10.5px] font-semibold text-[#686C65] tabular-nums">
+          Habis · 0/{stock.total}
+        </span>
+      );
+    }
+    if (stock.borrowed > 0) {
+      return (
+        <span className="inline-flex items-center rounded-[8px] bg-[#F7EDD6] px-2 py-0.5 text-[10.5px] font-semibold text-[#7A510B] tabular-nums">
+          Sisa {stock.available}/{stock.total}
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center rounded-[8px] bg-[#E5F2EE] px-2 py-0.5 text-[10.5px] font-semibold text-[#165243] tabular-nums">
+        Tersedia {stock.available}/{stock.total}
+      </span>
+    );
+  };
 
   const loadArchivedBooks = async () => {
     setArchivedLoading(true);
@@ -269,6 +374,11 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
         return;
       }
       await Promise.all([loadArchivedBooks(), loadBooks()]);
+      notify({
+        tone: 'success',
+        title: 'Buku dipulihkan',
+        description: `“${book.title}” kembali aktif di rak katalog.`,
+      });
     } catch (err) {
       console.error('Error restoring book:', err);
       setActionError('Gagal memulihkan buku. Silakan coba lagi.');
@@ -277,6 +387,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
 
   const handleDeleteBook = async (bookId: string) => {
     setActionError(null);
+    const archivedTitle = activeBook?.title;
     try {
       await LibraryService.deleteBook(bookId);
       setActiveBook(null);
@@ -284,9 +395,14 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
       setConfirmingArchive(false);
       await loadBooks();
       if (showArchived) await loadArchivedBooks();
+      notify({
+        tone: 'success',
+        title: 'Buku diarsipkan',
+        description: archivedTitle ? `“${archivedTitle}” dipindahkan ke arsip.` : 'Buku dipindahkan ke arsip.',
+      });
     } catch (err) {
       console.error('Error archiving book:', err);
-      setActionError('Gagal mengarsipkan buku. Silakan coba lagi.');
+      setActionError(err instanceof Error ? err.message : 'Gagal mengarsipkan buku. Silakan coba lagi.');
     }
   };
 
@@ -314,6 +430,11 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
       setEditingBook(false);
       await loadBooks();
       if (showArchived) await loadArchivedBooks();
+      notify({
+        tone: 'success',
+        title: 'Data buku diperbarui',
+        description: `“${updated.title}” (${normalizeStockCount(updated.stock_count)} eksemplar).`,
+      });
     } catch (err) {
       console.error('Error updating book:', err);
       setActionError('Gagal menyimpan perubahan buku. Silakan coba lagi.');
@@ -326,61 +447,61 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
     <div className="space-y-6 sm:space-y-7 pb-6">
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-3">
         <div>
-          <h1 className="text-[28px] sm:text-[34px] font-bold tracking-[-0.02em] leading-[1.15] text-[#262925] font-sans">
+          <h1 className="page-title">
             Rak Buku
           </h1>
-          <p className="mt-1 text-[15px] leading-[1.5] text-[#575B54]">
-            {filteredBooks.length} buku tersedia di katalog.
+          <p className="mt-1 text-[13px] sm:text-[15px] leading-[1.5] text-[#686C65] tabular-nums">
+            {filteredBooks.length} judul · {totalAvailableCopies}/{totalCopies} eksemplar tersedia di rak.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center bg-white p-1 rounded-[12px]">
+          <div className="flex items-center bg-[#E8E3D9] p-1 rounded-full">
             <button
               type="button"
               onClick={() => setViewMode('shelf')}
-              className={`px-3 py-2 rounded-[8px] text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all ${
                 viewMode === 'shelf'
-                  ? 'bg-[#E8EFEB] text-[#24483D]'
-                  : 'text-[#575B54] hover:text-[#262925]'
+                  ? 'bg-white text-[#262925] shadow-[0_1px_2px_rgba(38,41,37,0.1)]'
+                  : 'text-[#686C65] hover:text-[#262925]'
               }`}
               title="Tampilan Rak"
             >
               <Library className="w-3.5 h-3.5" strokeWidth={1.5} aria-hidden="true" />
-              <span className="hidden sm:inline">Rak</span>
+              <span className="hidden sm:inline-flex reserve-bold items-center" data-label="Rak">Rak</span>
             </button>
             <button
               type="button"
               onClick={() => setViewMode('grid')}
-              className={`px-3 py-2 rounded-[8px] text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all ${
                 viewMode === 'grid'
-                  ? 'bg-[#E8EFEB] text-[#24483D]'
-                  : 'text-[#575B54] hover:text-[#262925]'
+                  ? 'bg-white text-[#262925] shadow-[0_1px_2px_rgba(38,41,37,0.1)]'
+                  : 'text-[#686C65] hover:text-[#262925]'
               }`}
-              title="Tampilan Grid"
+              title="Tampilan Kotak"
             >
               <Grid className="w-3.5 h-3.5" strokeWidth={1.5} aria-hidden="true" />
-              <span className="hidden sm:inline">Grid</span>
+              <span className="hidden sm:inline-flex reserve-bold items-center" data-label="Kotak">Kotak</span>
             </button>
             <button
               type="button"
               onClick={() => setViewMode('table')}
-              className={`px-3 py-2 rounded-[8px] text-xs font-semibold flex items-center gap-1.5 transition-colors ${
+              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 transition-all ${
                 viewMode === 'table'
-                  ? 'bg-[#E8EFEB] text-[#24483D]'
-                  : 'text-[#575B54] hover:text-[#262925]'
+                  ? 'bg-white text-[#262925] shadow-[0_1px_2px_rgba(38,41,37,0.1)]'
+                  : 'text-[#686C65] hover:text-[#262925]'
               }`}
               title="Tampilan Daftar"
             >
               <List className="w-3.5 h-3.5" strokeWidth={1.5} aria-hidden="true" />
-              <span className="hidden sm:inline">Daftar</span>
+              <span className="hidden sm:inline-flex reserve-bold items-center" data-label="Daftar">Daftar</span>
             </button>
           </div>
 
           <button
             type="button"
             onClick={toggleArchived}
-            className="inline-flex min-h-[44px] items-center gap-1.5 px-4 bg-white hover:bg-[#F1EDE4] text-[#262925] text-xs font-semibold rounded-[10px] whitespace-nowrap"
+            className="inline-flex min-h-[40px] sm:min-h-[44px] items-center gap-1.5 px-3.5 sm:px-4 bg-white shadow-[0_1px_2px_rgba(38,41,37,0.06)] hover:bg-[#ECE8DF] text-[#262925] text-xs font-semibold rounded-[12px] whitespace-nowrap"
           >
             <Archive className="w-3.5 h-3.5" strokeWidth={1.5} aria-hidden="true" />
             <span>Arsip</span>
@@ -389,7 +510,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
           <button
             type="button"
             onClick={onNavigateToScanner}
-            className="inline-flex min-h-[50px] items-center gap-1.5 px-5 bg-[#24483D] hover:bg-[#19382F] text-white text-sm font-semibold rounded-full whitespace-nowrap"
+            className="btn-hero-marigold inline-flex min-h-[44px] items-center gap-1.5 px-4 sm:px-5 text-[13px] sm:text-sm font-bold rounded-[12px] whitespace-nowrap"
           >
             <Plus className="w-4 h-4" strokeWidth={1.5} aria-hidden="true" />
             <span>Tambah buku</span>
@@ -398,75 +519,73 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
       </div>
 
       {showArchived && (
-        <div className="bg-white rounded-[16px] p-3.5 sm:p-4 space-y-2.5">
-          <div className="flex items-center justify-between px-0.5">
+        <div className="bg-white rounded-[18px] shadow-[0_1px_3px_rgba(38,41,37,0.04)] overflow-hidden divide-y divide-[#ECE7DD]">
+          <div className="flex items-center justify-between px-4 py-3 sm:px-5">
             <div className="flex items-center gap-2">
-              <Archive className="w-4 h-4 text-[#575B54]" strokeWidth={1.5} aria-hidden="true" />
+              <Archive className="w-4 h-4 text-[#686C65]" strokeWidth={1.5} aria-hidden="true" />
               <h2 className="text-xs font-bold text-[#262925]">Arsip buku</h2>
-              <span className="text-[11px] text-[#575B54] font-mono">({archivedBooks.length})</span>
+              <span className="text-[11px] text-[#686C65] tabular-nums">({archivedBooks.length})</span>
             </div>
             <button
               type="button"
               onClick={() => setShowArchived(false)}
-              className="text-xs font-semibold text-[#575B54] hover:text-[#262925]"
+              className="text-xs font-semibold text-[#686C65] hover:text-[#262925]"
             >
               Tutup
             </button>
           </div>
           {actionError && !activeBook && (
-            <div role="alert" className="rounded-[10px] bg-[#FDECEC] px-3.5 py-2.5 text-xs font-medium text-[#B3261E]">
+            <div role="alert" className="bg-[#FDECEC] px-4 py-2.5 sm:px-5 text-xs font-medium text-[#B3261E]">
               {actionError}
             </div>
           )}
           {archivedLoading ? (
-            <div className="h-16 bg-[#FAF8F3] rounded-[10px] animate-pulse" />
+            <div className="h-16 bg-white animate-pulse" />
           ) : archivedBooks.length === 0 ? (
-            <p className="text-xs text-[#575B54] px-0.5">Belum ada buku yang diarsipkan.</p>
+            <p className="text-xs text-[#737770] px-4 py-3.5 sm:px-5">Belum ada buku yang diarsipkan.</p>
           ) : (
-            <div className="space-y-2">
-              {archivedBooks.map((book) => (
-                <div
-                  key={book.id}
-                  className="flex items-center justify-between gap-3 p-3 rounded-[10px] bg-[#FAF8F3]"
-                >
-                  <div className="min-w-0">
-                    <div className="book-title text-[#262925]">{book.title}</div>
-                    <div className="text-[11px] text-[#575B54] font-mono">
-                      ISBN {book.isbn_13} ·
-                      {' '}diarsipkan {book.deleted_at ? new Date(book.deleted_at).toLocaleDateString('id-ID') : '-'}
-                    </div>
+            archivedBooks.map((book) => (
+              <div
+                key={book.id}
+                className="flex items-center justify-between gap-3 px-4 py-3 sm:px-5"
+              >
+                <div className="min-w-0">
+                  <div className="book-title text-[#262925]">{book.title}</div>
+                  <div className="text-[11px] text-[#686C65] tabular-nums">
+                    <span className="font-mono"><span className="acronym">ISBN</span> {book.isbn_13}</span> · diarsipkan{' '}
+                    {book.deleted_at ? new Date(book.deleted_at).toLocaleDateString('id-ID') : '-'}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => handleRestoreBook(book)}
-                    className="inline-flex shrink-0 items-center gap-1 min-h-[36px] px-3 py-1.5 text-xs font-semibold text-[#24483D] bg-[#E8EFEB] hover:bg-[#DCE7E1] rounded-[8px]"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" strokeWidth={1.5} aria-hidden="true" />
-                    Pulihkan
-                  </button>
                 </div>
-              ))}
-            </div>
+                <button
+                  type="button"
+                  onClick={() => handleRestoreBook(book)}
+                  className="inline-flex shrink-0 items-center gap-1 min-h-[36px] px-3 py-1.5 text-xs font-semibold text-[#165243] bg-[#E5F2EE] hover:bg-[#D6EAE4] rounded-[12px]"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" strokeWidth={1.5} aria-hidden="true" />
+                  Pulihkan
+                </button>
+              </div>
+            ))
           )}
         </div>
       )}
 
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 bg-white p-1.5 rounded-[12px]">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 bg-white shadow-[0_1px_3px_rgba(38,41,37,0.05)] focus-within:ring-2 focus-within:ring-[#1F6F5B]/20 p-1.5 rounded-[12px] transition-shadow">
         <div className="relative flex-1">
-          <Search className="w-4 h-4 text-[#575B54] absolute left-3.5 top-1/2 -translate-y-1/2" strokeWidth={1.5} aria-hidden="true" />
+          <Search className="w-4 h-4 text-[#686C65] absolute left-3.5 top-1/2 -translate-y-1/2" strokeWidth={1.5} aria-hidden="true" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Cari judul, penulis, atau ISBN..."
-            className="w-full pl-10 pr-11 py-2.5 text-xs bg-transparent rounded-[8px] text-[#262925] placeholder-[#575B54]"
+            className="w-full pl-10 pr-11 py-2.5 text-xs bg-transparent rounded-[10px] text-[#262925] placeholder-[#686C65] focus:outline-none"
           />
           {searchQuery && (
             <button
               type="button"
               aria-label="Hapus pencarian"
               onClick={() => setSearchQuery('')}
-              className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-[8px] text-[#575B54] hover:bg-[#F1EDE4] hover:text-[#262925]"
+              className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex min-h-[36px] min-w-[36px] items-center justify-center rounded-[10px] text-[#686C65] hover:bg-[#ECE8DF] hover:text-[#262925]"
             >
               <X className="w-3.5 h-3.5" strokeWidth={1.5} aria-hidden="true" />
             </button>
@@ -478,7 +597,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
             aria-label="Filter kategori"
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="w-full sm:w-auto px-3.5 py-2.5 text-xs font-semibold bg-[#FAF8F3] rounded-[8px] text-[#262925]"
+            className="w-full sm:w-auto px-3.5 py-2.5 text-xs font-semibold bg-[#F2EFE8] rounded-[10px] text-[#262925] focus:outline-none"
           >
             <option value="all">Semua kategori</option>
             {categories.map((cat) => (
@@ -493,39 +612,45 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
       {loading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 animate-pulse">
           {[1, 2, 3, 4, 5, 6].map((i) => (
-            <div key={i} className="h-64 bg-[#F1EDE4] rounded-[16px]" />
+            <div key={i} className="aspect-[136/223] bg-[#ECE8DF] rounded-[14px]" />
           ))}
         </div>
       ) : loadError ? (
-        <div role="alert" className="rounded-[16px] bg-[#FDECEC] p-5 text-sm text-[#262925]">
+        <div role="alert" className="rounded-[18px] bg-[#FDECEC] p-5 text-sm text-[#262925]">
           <p className="font-bold">Gagal memuat rak buku</p>
-          <p className="mt-1 text-xs text-[#575B54]">{loadError}</p>
+          <p className="mt-1 text-xs text-[#686C65]">{loadError}</p>
           <button
             type="button"
             onClick={() => void loadBooks()}
-            className="mt-3 rounded-[10px] bg-[#B3261E] px-4 py-2 text-xs font-bold text-white hover:bg-[#8E1D17]"
+            className="mt-3 rounded-[12px] bg-[#B3261E] px-4 py-2 text-xs font-bold text-white hover:bg-[#8E1D17]"
           >
             Coba lagi
           </button>
         </div>
       ) : filteredBooks.length === 0 ? (
-        <div className="text-center py-14 bg-white rounded-[16px] p-8 max-w-lg mx-auto">
-          <BookOpen className="w-10 h-10 mx-auto text-[#575B54] mb-3" strokeWidth={1.5} aria-hidden="true" />
-          <h3 className="text-base font-bold text-[#262925]">
+        <div className="text-center py-12 bg-white rounded-[18px] shadow-[0_1px_3px_rgba(38,41,37,0.04)] p-6 sm:p-8 max-w-lg mx-auto">
+          {books.length === 0 ? (
+            <ReadingCornerEmptyIllustration className="mb-3" />
+          ) : (
+            <EmptySearchIllustration className="mb-3" />
+          )}
+          <h3 className="text-[15px] sm:text-base font-bold text-[#262925]">
             {books.length === 0 ? 'Rak buku masih kosong' : 'Buku tidak ditemukan'}
           </h3>
-          <p className="text-xs text-[#575B54] max-w-sm mx-auto mt-1 mb-5">
+          <p className="text-[13px] text-[#737770] max-w-sm mx-auto mt-1 mb-5 leading-[1.55]">
             {books.length === 0
-              ? 'Belum ada buku di katalog. Pindai barcode ISBN untuk menambahkan buku pertama.'
+              ? <>Belum ada buku di katalog. Pindai barcode <span className="acronym">ISBN</span> untuk menambahkan buku pertama.</>
+              : searchQuery.trim()
+              ? `Tidak ada buku yang cocok dengan pencarian “${searchQuery.trim()}” atau kategori yang dipilih.`
               : 'Tidak ada buku yang cocok dengan kata kunci atau kategori yang dipilih.'}
           </p>
           {books.length === 0 ? (
             <button
               type="button"
               onClick={onNavigateToScanner}
-              className="min-h-[50px] px-6 bg-[#24483D] hover:bg-[#19382F] text-white text-sm font-semibold rounded-full"
+              className="btn-hero-marigold min-h-[46px] px-6 text-sm font-bold rounded-[12px]"
             >
-              Mulai scan buku pertama
+              Mulai pindai buku pertama
             </button>
           ) : (
             <button
@@ -534,197 +659,228 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
                 setSearchQuery('');
                 setSelectedCategory('all');
               }}
-              className="min-h-[46px] px-6 bg-[#F1EDE4] hover:bg-[#E7E1D5] text-sm font-semibold rounded-[10px] text-[#262925]"
+              className="min-h-[44px] px-6 bg-[#F2EFE8] hover:bg-[#E7E2D7] text-sm font-semibold rounded-[12px] text-[#262925]"
             >
               Hapus filter
             </button>
           )}
         </div>
       ) : viewMode === 'shelf' ? (
-        <div className="space-y-10 py-2">
-          {Array.from({ length: Math.ceil(filteredBooks.length / 5) }).map((_, shelfIdx) => {
-            const shelfBooks = filteredBooks.slice(shelfIdx * 5, shelfIdx * 5 + 5);
+        <div ref={shelfContainerRef} className="space-y-10 py-2">
+          {Array.from({ length: Math.ceil(filteredBooks.length / booksPerShelf) }).map((_, shelfIdx) => {
+            const shelfBooks = filteredBooks.slice(shelfIdx * booksPerShelf, (shelfIdx + 1) * booksPerShelf);
             return (
               <div key={shelfIdx} className="relative">
-                <div className="flex items-end justify-center sm:justify-start gap-3.5 sm:gap-6 px-2 pb-3 z-10 relative overflow-x-auto min-h-[184px] sm:min-h-[210px] no-scrollbar">
-                  {shelfBooks.map((book) => (
-                    <button
-                      type="button"
-                      key={book.id}
-                      onClick={() => openBookDetail(book)}
-                      className="group relative flex flex-col items-center shrink-0 w-[114px] sm:w-32 md:w-36 text-left"
-                    >
-                      <BookCard
-                        coverUrl={book.cover_url}
-                        title={book.title}
-                        author={book.authors?.[0]?.name}
-                        seed={book.id}
-                        size="md"
-                        className="w-full"
-                      />
+                <div className="flex items-end justify-start gap-4 sm:gap-6 px-2 pt-1 z-10 relative overflow-x-auto min-h-[184px] sm:min-h-[210px] no-scrollbar">
+                  {shelfBooks.map((book) => {
+                    const stock = getBookStockInfo(book, activeLoanCountMap.get(book.id) ?? 0);
+                    return (
+                      <button
+                        type="button"
+                        key={book.id}
+                        onClick={() => openBookDetail(book)}
+                        className="group relative flex flex-col items-start shrink-0 w-[114px] sm:w-32 md:w-36 pb-3 text-left"
+                      >
+                        <div className="relative w-full">
+                          <BookCard
+                            coverUrl={book.cover_url}
+                            title={book.title}
+                            author={book.authors?.[0]?.name}
+                            seed={book.id}
+                            unavailable={stock.isOutOfStock}
+                            size="md"
+                            className="w-full"
+                          />
+                          {stock.isOutOfStock && (
+                            <span className="absolute top-2 left-2 rounded-[8px] bg-[#262925]/85 px-2 py-0.5 text-[10px] font-bold text-white">
+                              Habis
+                            </span>
+                          )}
+                        </div>
 
-                      <div className="mt-2.5 w-full px-0.5 space-y-0.5 text-left">
-                        <h4 className="book-title book-title--reserve text-[#262925] group-hover:text-[#24483D]">
-                          {book.title}
-                        </h4>
-                        <p className="book-author line-clamp-1">
-                          {formatAuthorList(book.authors)}
-                        </p>
-                      </div>
-                    </button>
-                  ))}
+                        <div className="mt-2.5 w-full px-0.5 space-y-1 text-left">
+                          <h4 className="book-title book-title--reserve text-[#262925] group-hover:text-[#165243]">
+                            {book.title}
+                          </h4>
+                          <p className="book-author line-clamp-1">
+                            {formatAuthorList(book.authors)}
+                          </p>
+                          {renderStockBadge(stock)}
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
 
-                <div className="w-full h-[2px] bg-[#E2DCCF] rounded-full" aria-hidden="true" />
+                <div className="w-full h-px bg-[#ECE7DD]" aria-hidden="true" />
               </div>
             );
           })}
         </div>
       ) : viewMode === 'grid' ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
-          {filteredBooks.map((book) => (
-            <button
-              type="button"
-              key={book.id}
-              onClick={() => openBookDetail(book)}
-              className="group bg-white rounded-[16px] p-2.5 sm:p-3 hover:bg-[#F1EDE4] transition-colors flex flex-col justify-between text-left"
-            >
-              <div className="w-full">
-                <BookCard
-                  coverUrl={book.cover_url}
-                  title={book.title}
-                  author={book.authors?.[0]?.name}
-                  seed={book.id}
-                  size="md"
-                  className="mb-2 w-full"
-                />
-
-                <div className="mt-2.5 space-y-0.5">
-                  <h3 className="book-title book-title--reserve text-[#262925] group-hover:text-[#24483D]">
-                    {book.title}
-                  </h3>
-                  <p className="book-author line-clamp-1">
-                    {formatAuthorList(book.authors)}
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-2 pt-0.5 flex items-center justify-between text-xs font-mono font-normal text-[#575B54]">
-                <span>ISBN {book.isbn_13.slice(-5)}</span>
-              </div>
-            </button>
-          ))}
-        </div>
-      ) : (
-        <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 lg:hidden">
-            {filteredBooks.map((book) => (
+          {filteredBooks.map((book) => {
+            const stock = getBookStockInfo(book, activeLoanCountMap.get(book.id) ?? 0);
+            return (
               <button
                 type="button"
                 key={book.id}
                 onClick={() => openBookDetail(book)}
-                aria-label={`Lihat detail ${book.title}`}
-                className="group w-full min-h-[44px] bg-white hover:bg-[#F1EDE4] active:bg-[#EFECE4] rounded-[16px] p-3.5 text-left transition-colors flex items-start gap-3.5 min-w-0"
+                className="group bg-white rounded-[18px] shadow-[0_1px_3px_rgba(38,41,37,0.04)] p-3 hover:bg-[#FAF9F5] transition-colors flex flex-col justify-between text-left"
               >
-                <div className="w-11 shrink-0 pt-0.5">
-                  <BookCard
-                    coverUrl={book.cover_url}
-                    title={book.title}
-                    author={book.authors?.[0]?.name}
-                    seed={book.id}
-                    size="xs"
-                    showRibbon={false}
-                    className="w-full"
-                  />
-                </div>
-                <div className="min-w-0 flex-1 space-y-1.5">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="book-title text-[#262925] group-hover:text-[#24483D]">
+                <div className="w-full">
+                  <div className="relative mb-2 w-full">
+                    <BookCard
+                      coverUrl={book.cover_url}
+                      title={book.title}
+                      author={book.authors?.[0]?.name}
+                      seed={book.id}
+                      unavailable={stock.isOutOfStock}
+                      size="md"
+                      className="w-full"
+                    />
+                    {stock.isOutOfStock && (
+                      <span className="absolute top-2 left-2 rounded-[8px] bg-[#262925]/85 px-2 py-0.5 text-[10px] font-bold text-white">
+                        Habis
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="mt-2.5 space-y-0.5">
+                    <h3 className="book-title book-title--reserve text-[#262925] group-hover:text-[#165243]">
                       {book.title}
-                    </div>
-                    <span className="shrink-0 rounded-[8px] bg-[#FAF8F3] px-2 py-0.5 text-[11px] font-medium text-[#575B54]">
-                      {book.categories[0]?.name || 'Umum'}
-                    </span>
+                    </h3>
+                    <p className="book-author line-clamp-1">
+                      {formatAuthorList(book.authors)}
+                    </p>
                   </div>
-                  <p className="book-author line-clamp-1">
-                    {formatAuthorList(book.authors)}
-                  </p>
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 pt-0.5 text-xs text-[#575B54]">
-                    <span className="font-mono tabular-nums text-[#363A34]">
-                      {formatIsbn(book.isbn_13)}
-                    </span>
-                    <span aria-hidden="true">·</span>
-                    <span className="truncate max-w-full">
-                      {book.publisher?.name || 'Tidak tercatat'}
-                      {book.publication_year ? ` (${book.publication_year})` : ''}
-                    </span>
-                  </div>
+                </div>
+
+                <div className="mt-2 pt-0.5 flex items-center justify-between gap-2 text-xs font-mono font-normal text-[#686C65]">
+                  <span><span className="acronym">ISBN</span> {book.isbn_13.slice(-5)}</span>
+                  <span className="font-sans">{renderStockBadge(stock)}</span>
                 </div>
               </button>
-            ))}
+            );
+          })}
+        </div>
+      ) : (
+        <>
+          <div className="rounded-[18px] overflow-hidden shadow-[0_1px_3px_rgba(38,41,37,0.04)] grid grid-cols-1 sm:grid-cols-2 gap-px bg-[#ECE7DD] lg:hidden">
+            {filteredBooks.map((book) => {
+              const stock = getBookStockInfo(book, activeLoanCountMap.get(book.id) ?? 0);
+              return (
+                <button
+                  type="button"
+                  key={book.id}
+                  onClick={() => openBookDetail(book)}
+                  aria-label={`Lihat detail ${book.title}`}
+                  className="group w-full min-h-[44px] bg-white hover:bg-[#FAF9F5] active:bg-[#F2EFE8] p-3.5 text-left transition-colors flex items-start gap-3.5 min-w-0"
+                >
+                  <div className="w-11 shrink-0 pt-0.5">
+                    <BookCard
+                      coverUrl={book.cover_url}
+                      title={book.title}
+                      author={book.authors?.[0]?.name}
+                      seed={book.id}
+                      unavailable={stock.isOutOfStock}
+                      size="xs"
+                      className="w-full"
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="book-title text-[#262925] group-hover:text-[#165243]">
+                        {book.title}
+                      </div>
+                      <span className="shrink-0 rounded-[10px] bg-[#F2EFE8] px-2.5 py-0.5 text-[11px] font-medium text-[#686C65]">
+                        {book.categories[0]?.name || 'Umum'}
+                      </span>
+                    </div>
+                    <p className="book-author line-clamp-1">
+                      {formatAuthorList(book.authors)}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pt-0.5 text-xs text-[#686C65]">
+                      <span className="font-mono tabular-nums text-[#363A34]">
+                        {formatIsbn(book.isbn_13)}
+                      </span>
+                      <span aria-hidden="true">·</span>
+                      {renderStockBadge(stock)}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
           </div>
 
-          <div className="hidden lg:block bg-white rounded-[16px] overflow-hidden p-2">
+          <div className="hidden lg:block bg-white rounded-[18px] shadow-[0_1px_3px_rgba(38,41,37,0.04)] overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-separate border-spacing-y-1.5">
-                <thead className="text-[#575B54] font-semibold">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="border-b border-[#ECE7DD] text-[#686C65] font-semibold">
                   <tr>
-                    <th className="py-3 px-4">Judul & Penulis</th>
-                    <th className="py-3 px-4 font-mono">ISBN-13</th>
-                    <th className="py-3 px-4">Kategori</th>
-                    <th className="py-3 px-4">Penerbit / Tahun</th>
-                    <th className="py-3 px-4">Ditambahkan</th>
-                    <th className="py-3 px-4 text-right">Aksi</th>
+                    <th className="py-3.5 px-5">Judul & Penulis</th>
+                    <th className="py-3.5 px-4 font-mono"><span className="acronym">ISBN-13</span></th>
+                    <th className="py-3.5 px-4">Kategori</th>
+                    <th className="py-3.5 px-4">Stok</th>
+                    <th className="py-3.5 px-4">Penerbit / Tahun</th>
+                    <th className="py-3.5 px-4">Ditambahkan</th>
+                    <th className="py-3.5 px-5 text-right">Aksi</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {filteredBooks.map((book) => (
-                    <tr
-                      key={book.id}
-                      tabIndex={0}
-                      role="button"
-                      aria-label={`Lihat detail ${book.title}`}
-                      onClick={() => openBookDetail(book)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          openBookDetail(book);
-                        }
-                      }}
-                      className="bg-[#FAF8F3]/60 hover:bg-[#FAF8F3] cursor-pointer transition-colors"
-                    >
-                      <td className="py-3 px-4 rounded-l-[10px] max-w-[280px]">
-                        <div className="book-title text-[#262925]">{book.title}</div>
-                        <div className="book-author line-clamp-1">
-                          {formatAuthorList(book.authors)}
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 font-mono text-[#363A34] tabular-nums whitespace-nowrap">
-                        {formatIsbn(book.isbn_13)}
-                      </td>
-                      <td className="py-3 px-4 text-[#363A34] whitespace-nowrap">
-                        {book.categories[0]?.name || 'Umum'}
-                      </td>
-                      <td className="py-3 px-4 text-[#575B54] max-w-[220px]">
-                        {book.publisher?.name || 'Tidak tercatat'} · {book.publication_year || '-'}
-                      </td>
-                      <td className="py-3 px-4 text-[#575B54] font-mono tabular-nums whitespace-nowrap">
-                        {formatAddedAt(book.created_at)}
-                      </td>
-                      <td className="py-3 px-4 text-right rounded-r-[10px] whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
+                <tbody className="divide-y divide-[#ECE7DD]">
+                  {filteredBooks.map((book) => {
+                    const stock = getBookStockInfo(book, activeLoanCountMap.get(book.id) ?? 0);
+                    return (
+                      <tr
+                        key={book.id}
+                        tabIndex={0}
+                        role="button"
+                        aria-label={`Lihat detail ${book.title}`}
+                        onClick={() => openBookDetail(book)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
                             openBookDetail(book);
-                          }}
-                          className="px-3 py-1.5 text-[11px] font-semibold text-[#24483D] bg-[#E8EFEB] hover:bg-[#DCE7E1] rounded-[8px]"
-                        >
-                          Detail
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                          }
+                        }}
+                        className="bg-white hover:bg-[#FAF9F5] cursor-pointer transition-colors"
+                      >
+                        <td className="py-3.5 px-5 max-w-[280px]">
+                          <div className="book-title text-[#262925]">{book.title}</div>
+                          <div className="book-author line-clamp-1">
+                            {formatAuthorList(book.authors)}
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4 font-mono text-[#363A34] tabular-nums whitespace-nowrap">
+                          {formatIsbn(book.isbn_13)}
+                        </td>
+                        <td className="py-3.5 px-4 text-[#363A34] whitespace-nowrap">
+                          {book.categories[0]?.name || 'Umum'}
+                        </td>
+                        <td className="py-3.5 px-4 whitespace-nowrap">
+                          {renderStockBadge(stock)}
+                        </td>
+                        <td className="py-3.5 px-4 text-[#686C65] max-w-[220px]">
+                          {book.publisher?.name || 'Tidak tercatat'} · {book.publication_year || '-'}
+                        </td>
+                        <td className="py-3.5 px-4 text-[#686C65] tabular-nums whitespace-nowrap">
+                          {formatAddedAt(book.created_at)}
+                        </td>
+                        <td className="py-3.5 px-5 text-right whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openBookDetail(book);
+                            }}
+                            className="px-3 py-1.5 text-[11px] font-semibold text-[#165243] bg-[#E5F2EE] hover:bg-[#D6EAE4] rounded-[10px]"
+                          >
+                            Detail
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -732,7 +888,9 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
         </>
       )}
 
-      {activeBook && (
+      {activeBook && (() => {
+        const activeBookStock = getBookStockInfo(activeBook, activeLoanCountMap.get(activeBook.id) ?? 0);
+        return (
         <div
           role="dialog"
           aria-modal="true"
@@ -742,23 +900,23 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="bg-white rounded-[16px] max-w-2xl w-full overflow-hidden my-8"
+            className="bg-white rounded-[18px] shadow-xl max-w-2xl w-full overflow-hidden my-8"
           >
-            <div className="flex items-center justify-between px-4 py-3 sm:px-5 sm:py-3.5 bg-[#FAF8F3]">
+            <div className="flex items-center justify-between px-4 py-3 sm:px-5 sm:py-3.5 border-b border-[#ECE7DD] bg-white">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-[#24483D]">
+                <span className="text-xs font-bold text-[#165243]">
                   Detail buku
                 </span>
-                <span className="text-[#575B54]">·</span>
-                <span className="text-xs text-[#575B54] font-mono tabular-nums">
-                  ISBN {activeBook.isbn_13}
+                <span className="text-[#686C65]">·</span>
+                <span className="text-xs text-[#686C65] font-mono tabular-nums">
+                  <span className="acronym">ISBN</span> {activeBook.isbn_13}
                 </span>
               </div>
               <button
                 type="button"
                 aria-label="Tutup detail buku"
                 onClick={closeBookDetail}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-[10px] bg-white text-[#575B54] hover:text-[#262925]"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-[12px] bg-[#F2EFE8] text-[#262925] hover:bg-[#E7E2D7]"
               >
                 <X className="w-4 h-4" strokeWidth={1.5} aria-hidden="true" />
               </button>
@@ -767,7 +925,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
             {/* Modal Body */}
             <div className="p-4 sm:p-5 space-y-4 max-h-[75vh] overflow-y-auto">
               {actionError && (
-                <div role="alert" className="rounded-[10px] bg-[#FDECEC] px-3.5 py-2.5 text-xs font-medium text-[#B3261E]">
+                <div role="alert" className="rounded-[12px] bg-[#FDECEC] px-3.5 py-2.5 text-xs font-medium text-[#B3261E]">
                   {actionError}
                 </div>
               )}
@@ -780,22 +938,28 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
                 />
               ) : (
                 <div className="flex flex-col sm:flex-row gap-4 sm:gap-5">
-                  <div className="w-28 sm:w-36 shrink-0">
+                  <div className="relative w-28 sm:w-36 shrink-0">
                     <BookCard
                       coverUrl={activeBook.cover_url}
                       title={activeBook.title}
                       author={activeBook.authors?.[0]?.name}
                       seed={activeBook.id}
+                      unavailable={activeBookStock.isOutOfStock}
                       size="lg"
                     />
+                    {activeBookStock.isOutOfStock && (
+                      <span className="absolute top-2 left-2 rounded-[8px] bg-[#262925]/85 px-2 py-0.5 text-[10px] font-bold text-white">
+                        Habis
+                      </span>
+                    )}
                   </div>
 
-                  <div className="flex-1 space-y-2">
+                  <div className="flex-1 space-y-2.5">
                     <h2 className="book-title-lg text-[#262925]">
                       {activeBook.title}
                     </h2>
                     {activeBook.subtitle && (
-                      <p className="text-[13px] font-normal text-[#575B54]">
+                      <p className="text-[13px] font-normal text-[#737770]">
                         {activeBook.subtitle}
                       </p>
                     )}
@@ -803,7 +967,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
                       Oleh <span className="font-medium text-[#262925]">{formatAuthorList(activeBook.authors)}</span>
                     </p>
 
-                    <div className="rounded-[10px] bg-[#FAF8F3] p-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-[#575B54]">
+                    <div className="border-y border-[#ECE7DD] py-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-[#686C65]">
                       <div>
                         Penerbit:{' '}
                         <span className="font-medium text-[#262925]">
@@ -812,13 +976,13 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
                       </div>
                       <div>
                         Tahun:{' '}
-                        <span className="font-medium text-[#262925] font-mono tabular-nums">
+                        <span className="font-medium text-[#262925] tabular-nums">
                           {activeBook.publication_year || 'Belum dicatat'}
                         </span>
                       </div>
                       <div>
                         Halaman:{' '}
-                        <span className="font-medium text-[#262925] font-mono tabular-nums">
+                        <span className="font-medium text-[#262925] tabular-nums">
                           {activeBook.page_count || 'Belum dicatat'}
                         </span>
                       </div>
@@ -830,8 +994,15 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
                       </div>
                       <div>
                         Ditambahkan:{' '}
-                        <span className="font-medium text-[#262925] font-mono tabular-nums">
+                        <span className="font-medium text-[#262925] tabular-nums">
                           {formatAddedAt(activeBook.created_at)}
+                        </span>
+                      </div>
+                      <div>
+                        Persediaan:{' '}
+                        <span className="font-medium text-[#262925] tabular-nums">
+                          {activeBookStock.available}/{activeBookStock.total} eksemplar
+                          {activeBookStock.borrowed > 0 ? ` (${activeBookStock.borrowed} dipinjam)` : ''}
                         </span>
                       </div>
                     </div>
@@ -846,10 +1017,10 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
               )}
             </div>
 
-            <div className="px-4 py-3 sm:px-5 sm:py-3.5 bg-[#FAF8F3] flex flex-wrap items-center justify-between gap-2.5">
+            <div className="px-4 py-3 sm:px-5 sm:py-3.5 border-t border-[#ECE7DD] bg-white flex flex-wrap items-center justify-between gap-2.5">
               {editingBook ? (
                 <>
-                  <span className="text-[11px] text-[#575B54]">
+                  <span className="text-[11px] text-[#737770]">
                     Perubahan akan disimpan ke katalog.
                   </span>
                   <div className="flex items-center gap-2">
@@ -860,7 +1031,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
                         setActionError(null);
                       }}
                       disabled={savingEdit}
-                      className="min-h-[42px] px-4 bg-white text-xs font-semibold rounded-[10px] text-[#262925] hover:bg-[#F1EDE4] disabled:opacity-60"
+                      className="min-h-[42px] px-4 bg-[#F2EFE8] text-xs font-semibold rounded-[12px] text-[#262925] hover:bg-[#E7E2D7] disabled:opacity-60"
                     >
                       Batal
                     </button>
@@ -868,7 +1039,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
                       type="submit"
                       form="edit-book-form"
                       disabled={savingEdit}
-                      className="min-h-[44px] px-5 bg-[#24483D] hover:bg-[#19382F] text-white text-xs font-semibold rounded-full disabled:opacity-60"
+                      className="btn-primary-tactile min-h-[42px] px-5 text-xs font-semibold rounded-[12px] disabled:opacity-60"
                     >
                       {savingEdit ? 'Menyimpan...' : 'Simpan'}
                     </button>
@@ -883,14 +1054,14 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
                     <button
                       type="button"
                       onClick={() => setConfirmingArchive(false)}
-                      className="min-h-[42px] px-4 rounded-[10px] bg-white text-xs font-semibold text-[#262925] hover:bg-[#F1EDE4]"
+                      className="min-h-[42px] px-4 rounded-[12px] bg-[#F2EFE8] text-xs font-semibold text-[#262925] hover:bg-[#E7E2D7]"
                     >
                       Batal
                     </button>
                     <button
                       type="button"
                       onClick={() => void handleDeleteBook(activeBook.id)}
-                      className="min-h-[42px] px-4 rounded-[10px] bg-[#B3261E] text-white text-xs font-semibold hover:bg-[#8E1D17]"
+                      className="min-h-[42px] px-4 rounded-[12px] bg-[#B3261E] text-white text-xs font-semibold hover:bg-[#8E1D17]"
                     >
                       Ya, arsipkan
                     </button>
@@ -910,7 +1081,7 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
                     <button
                       type="button"
                       onClick={() => setEditingBook(true)}
-                      className="inline-flex min-h-[40px] items-center gap-1.5 text-xs text-[#262925] hover:text-[#24483D] font-semibold"
+                      className="inline-flex min-h-[40px] items-center gap-1.5 text-xs text-[#262925] hover:text-[#165243] font-semibold"
                     >
                       <Pencil className="w-3.5 h-3.5" strokeWidth={1.5} aria-hidden="true" />
                       <span>Ubah data</span>
@@ -921,21 +1092,26 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
                     {onLendBook && (
                       <button
                         type="button"
+                        disabled={activeBookStock.isOutOfStock}
                         onClick={() => {
                           const target = activeBook;
                           closeBookDetail();
                           onLendBook(target);
                         }}
-                        className="inline-flex items-center gap-1.5 min-h-[44px] px-5 rounded-full bg-[#24483D] text-white text-xs font-semibold hover:bg-[#19382F]"
+                        className={`inline-flex items-center gap-1.5 min-h-[44px] px-5 rounded-[12px] text-xs font-semibold ${
+                          activeBookStock.isOutOfStock
+                            ? 'bg-[#ECE8DF] text-[#686C65] cursor-not-allowed'
+                            : 'btn-primary-tactile'
+                        }`}
                       >
                         <CalendarClock className="w-3.5 h-3.5" strokeWidth={1.5} aria-hidden="true" />
-                        <span>Pinjamkan</span>
+                        <span>{activeBookStock.isOutOfStock ? 'Stok habis' : 'Pinjamkan'}</span>
                       </button>
                     )}
                     <button
                       type="button"
                       onClick={closeBookDetail}
-                      className="min-h-[44px] px-4 bg-white text-xs font-semibold rounded-[10px] text-[#262925] hover:bg-[#F1EDE4]"
+                      className="min-h-[44px] px-4 bg-[#F2EFE8] text-xs font-semibold rounded-[12px] text-[#262925] hover:bg-[#E7E2D7]"
                     >
                       Tutup
                     </button>
@@ -945,7 +1121,8 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 };

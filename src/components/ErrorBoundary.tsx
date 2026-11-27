@@ -45,24 +45,24 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     if (!error) return this.props.children;
 
     return (
-      <div className="flex min-h-screen w-full items-center justify-center bg-[#F5F6F8] p-6">
-        <div className="w-full max-w-lg rounded-2xl border border-[#ECEEF2] bg-white p-6 shadow-lg">
-          <h1 className="text-lg font-bold text-[#14181F]">Terjadi kendala tampilan</h1>
-          <p className="mt-2 text-sm leading-relaxed text-[#4B5563]">
+      <div className="flex min-h-screen w-full items-center justify-center bg-[#F5F3EE] p-6">
+        <div className="w-full max-w-lg rounded-[18px] bg-white p-6 shadow-lg">
+          <h1 className="page-title">Terjadi kendala tampilan</h1>
+          <p className="mt-2 text-sm leading-relaxed text-[#737770]">
             Halaman ini berhenti karena sebuah error. Data Anda tidak hilang. Muat ulang untuk
             melanjutkan, atau salin pesan di bawah saat melaporkan masalah.
           </p>
 
-          <pre className="mt-4 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-[#F5F6F8] p-3 text-[11px] leading-relaxed text-[#B42318]">
+          <pre className="mt-4 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-[12px] bg-[#FDECEC] p-3.5 text-[11px] leading-relaxed text-[#B3261E]">
             {error.message || String(error)}
           </pre>
 
           {componentStack && (
             <details className="mt-2">
-              <summary className="cursor-pointer text-xs font-semibold text-[#6E737D]">
+              <summary className="cursor-pointer text-xs font-semibold text-[#686C65]">
                 Detail komponen
               </summary>
-              <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-[#F5F6F8] p-3 text-[10px] leading-relaxed text-[#6E737D]">
+              <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-[12px] bg-[#F2EFE8] p-3.5 text-[10px] leading-relaxed text-[#686C65]">
                 {componentStack}
               </pre>
             </details>
@@ -72,14 +72,14 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
             <button
               type="button"
               onClick={this.handleReload}
-              className="rounded-xl bg-[#18362F] px-4 py-2 text-xs font-semibold text-white hover:bg-[#112822]"
+              className="btn-primary-tactile rounded-[12px] px-4 py-2.5 text-xs font-semibold"
             >
               Muat ulang
             </button>
             <button
               type="button"
               onClick={this.handleRetry}
-              className="rounded-xl bg-[#ECEEF2] px-4 py-2 text-xs font-semibold text-[#14181F] hover:bg-[#E5E7EB]"
+              className="rounded-[12px] bg-[#F2EFE8] px-4 py-2.5 text-xs font-semibold text-[#262925] hover:bg-[#E7E2D7]"
             >
               Coba lagi
             </button>

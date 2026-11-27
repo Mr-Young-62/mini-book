@@ -5,6 +5,7 @@ import {
   ScannedBookMetadata,
 } from '../types/library';
 import { getErrorMessage, getSupabaseErrorMessage } from '../lib/errorMessage';
+import { normalizeStockCount } from '../lib/stock';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { cleanIsbn, isValidIsbn, normalizeToIsbn13 } from './isbnValidator';
 
@@ -13,11 +14,95 @@ const COVER_BUCKET = 'book-covers';
 const STORAGE_KEY_BOOKS = 'readowl_data_books';
 const STORAGE_KEY_LOGS = 'readowl_data_logs';
 const STORAGE_KEY_SETTINGS = 'readowl_data_settings';
+const STORAGE_KEY_STOCK_OVERRIDES = 'readowl_book_stock_overrides';
+
+function readStockOverrides(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_STOCK_OVERRIDES);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, number>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveStockOverride(bookId: string, isbn13: string, stockCount: number): void {
+  try {
+    const map = readStockOverrides();
+    map[bookId] = stockCount;
+    if (isbn13) map[`isbn:${isbn13}`] = stockCount;
+    localStorage.setItem(STORAGE_KEY_STOCK_OVERRIDES, JSON.stringify(map));
+  } catch {
+    /* ignore storage quota errors on fallback mirror */
+  }
+}
+
+function removeStockOverride(bookId: string, isbn13?: string): void {
+  try {
+    const map = readStockOverrides();
+    let changed = false;
+    if (bookId in map) {
+      delete map[bookId];
+      changed = true;
+    }
+    if (isbn13 && `isbn:${isbn13}` in map) {
+      delete map[`isbn:${isbn13}`];
+      changed = true;
+    }
+    if (changed) {
+      localStorage.setItem(STORAGE_KEY_STOCK_OVERRIDES, JSON.stringify(map));
+    }
+  } catch {
+    /* ignore storage errors */
+  }
+}
+
+function resolveStockCount(rawBook: { id: string; isbn_13?: string; stock_count?: number | null }): number {
+  if (typeof rawBook.stock_count === 'number' && Number.isFinite(rawBook.stock_count) && rawBook.stock_count >= 1) {
+    return normalizeStockCount(rawBook.stock_count);
+  }
+  const overrides = readStockOverrides();
+  const byId = overrides[rawBook.id];
+  if (typeof byId === 'number') return normalizeStockCount(byId);
+  const byIsbn = rawBook.isbn_13 ? overrides[`isbn:${rawBook.isbn_13}`] : undefined;
+  if (typeof byIsbn === 'number') return normalizeStockCount(byIsbn);
+  return 1;
+}
+
+function isMissingStockColumnError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const code = 'code' in error ? String(error.code) : '';
+  const message = 'message' in error ? String(error.message).toLowerCase() : '';
+  return code === '42703' || code === 'PGRST204' || message.includes('stock_count');
+}
+
+async function syncCloudStockCount(bookId: string, isbn13: string, stockCount: number): Promise<void> {
+  const normalized = normalizeStockCount(stockCount);
+  if (!supabase) {
+    saveStockOverride(bookId, isbn13, normalized);
+    return;
+  }
+  const { error } = await supabase
+    .from('books')
+    .update({ stock_count: normalized })
+    .eq('id', bookId);
+
+  if (!error) {
+    removeStockOverride(bookId, isbn13);
+    return;
+  }
+  if (isMissingStockColumnError(error)) {
+    saveStockOverride(bookId, isbn13, normalized);
+    return;
+  }
+  throw new Error(getSupabaseErrorMessage(error));
+}
 
 // Default initial settings
 export const defaultSettings: LibrarySettings = {
   library_info: {
-    name: 'MeelieFont Library',
+    name: 'Perpustakaan MeelieFont',
     code: 'RDW-01',
     address: '',
     phone: '',
@@ -88,6 +173,7 @@ export class LibraryService {
       const books = data || [];
       return books.map((b: any) => ({
         ...b,
+        stock_count: resolveStockCount(b),
         authors: b.authors?.map((a: any) => a.author).filter(Boolean) || [],
         categories: b.categories?.map((c: any) => c.category).filter(Boolean) || [],
       }));
@@ -95,7 +181,12 @@ export class LibraryService {
 
     // Local Storage Fallback
     const books: Book[] = getLocal(STORAGE_KEY_BOOKS, initialBooks);
-    return books.filter((b) => !b.deleted_at);
+    return books
+      .filter((b) => !b.deleted_at)
+      .map((b) => ({
+        ...b,
+        stock_count: resolveStockCount(b),
+      }));
   }
 
   /**
@@ -152,6 +243,7 @@ export class LibraryService {
 
       return {
         ...data,
+        stock_count: resolveStockCount(data as any),
         authors: (data as any).authors?.map((a: any) => a.author).filter(Boolean) || [],
         categories: (data as any).categories?.map((c: any) => c.category).filter(Boolean) || [],
       };
@@ -159,13 +251,15 @@ export class LibraryService {
 
     const books = getLocal<Book[]>(STORAGE_KEY_BOOKS, initialBooks);
     const cleanedInput = cleanIsbn(isbn);
-    return books.find((b) => !b.deleted_at && (b.isbn_13 === isbn13 || (b.isbn_10 && cleanIsbn(b.isbn_10) === cleanedInput))) || null;
+    const matched = books.find((b) => !b.deleted_at && (b.isbn_13 === isbn13 || (b.isbn_10 && cleanIsbn(b.isbn_10) === cleanedInput))) || null;
+    return matched ? { ...matched, stock_count: resolveStockCount(matched) } : null;
   }
 
   static async addBook(metadata: ScannedBookMetadata): Promise<{ book: Book }> {
     const isbn13 = normalizeToIsbn13(metadata.isbn13);
     if (!isValidIsbn(isbn13)) throw new Error('Book ISBN is invalid.');
     if (!metadata.title.trim()) throw new Error('Book title is required.');
+    const stockCount = normalizeStockCount(metadata.stockCount);
     let coverPath: string | undefined;
     const normalizedCover = normalizeCoverUrl(metadata.coverUrl);
 
@@ -215,6 +309,7 @@ export class LibraryService {
       if (!data?.book_id) {
         throw new Error('Catalog operation returned an invalid result. Check the catalog before retrying.');
       }
+      await syncCloudStockCount(data.book_id, isbn13, stockCount);
       return {
         book: {
           id: data.book_id,
@@ -226,6 +321,7 @@ export class LibraryService {
           publication_year: metadata.publicationYear,
           language: metadata.language || 'en',
           page_count: metadata.pageCount,
+          stock_count: stockCount,
           cover_url: coverPath || normalizedCover,
           metadata_source: metadata.source,
           created_at: new Date().toISOString(),
@@ -257,6 +353,7 @@ export class LibraryService {
         publication_year: metadata.publicationYear,
         language: metadata.language || 'en',
         page_count: metadata.pageCount,
+        stock_count: stockCount,
         publisher: metadata.publisher ? { id: crypto.randomUUID(), name: metadata.publisher } : undefined,
         cover_url: normalizedCover,
         metadata_source: metadata.source,
@@ -265,10 +362,13 @@ export class LibraryService {
         categories: metadata.categories.filter(Boolean).map((name) => ({ id: crypto.randomUUID(), name })),
       };
       books.unshift(book);
-    } else if (!book.cover_url && normalizedCover) {
-      book.cover_url = normalizedCover;
+    } else {
+      book.stock_count = stockCount;
       book.updated_at = new Date().toISOString();
-      book.metadata_source = book.metadata_source || metadata.source;
+      if (!book.cover_url && normalizedCover) {
+        book.cover_url = normalizedCover;
+        book.metadata_source = book.metadata_source || metadata.source;
+      }
       const idx = books.findIndex((b) => b.id === book?.id);
       if (idx >= 0) books[idx] = book;
     }
@@ -298,6 +398,7 @@ export class LibraryService {
     const normalizedCover = normalizeCoverUrl(metadata.coverUrl);
     const positiveInt = (value?: number): number | undefined =>
       typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : undefined;
+    const stockCount = normalizeStockCount(metadata.stockCount ?? book.stock_count);
     const updated: Book = {
       ...book,
       isbn_10: metadata.isbn10?.trim() || undefined,
@@ -308,6 +409,7 @@ export class LibraryService {
       publication_year: positiveInt(metadata.publicationYear),
       language: metadata.language?.trim() || 'en',
       page_count: positiveInt(metadata.pageCount),
+      stock_count: stockCount,
       publisher: metadata.publisher?.trim()
         ? { id: book.publisher?.id ?? crypto.randomUUID(), name: metadata.publisher.trim() }
         : undefined,
@@ -343,6 +445,7 @@ export class LibraryService {
         p_categories: updated.categories.map((category) => category.name),
       });
       if (error) throw new Error(getSupabaseErrorMessage(error));
+      await syncCloudStockCount(book.id, isbn13, stockCount);
       return updated;
     }
 
@@ -451,13 +554,19 @@ export class LibraryService {
       const books = data || [];
       return books.map((b: any) => ({
         ...b,
+        stock_count: resolveStockCount(b),
         authors: b.authors?.map((a: any) => a.author).filter(Boolean) || [],
         categories: b.categories?.map((c: any) => c.category).filter(Boolean) || [],
       }));
     }
 
     const books = getLocal<Book[]>(STORAGE_KEY_BOOKS, initialBooks);
-    return books.filter((b) => b.deleted_at);
+    return books
+      .filter((b) => b.deleted_at)
+      .map((b) => ({
+        ...b,
+        stock_count: resolveStockCount(b),
+      }));
   }
 
   static async restoreBook(bookId: string): Promise<boolean> {
@@ -573,7 +682,12 @@ export class LibraryService {
   static getSettings(): LibrarySettings {
     const stored = getLocal<LibrarySettings>(STORAGE_KEY_SETTINGS, defaultSettings);
     const libraryInfo = { ...defaultSettings.library_info, ...stored.library_info };
-    if (libraryInfo.name === 'Readowl Community Library') libraryInfo.name = 'MeelieFont Library';
+    if (
+      libraryInfo.name === 'Readowl Community Library' ||
+      libraryInfo.name === 'MeelieFont Library'
+    ) {
+      libraryInfo.name = 'Perpustakaan MeelieFont';
+    }
     if (libraryInfo.email === 'contact@readowl.library') libraryInfo.email = '';
     // Normalize the historical seed values for installations that still have
     // them in local storage. Values edited by the user are left untouched.

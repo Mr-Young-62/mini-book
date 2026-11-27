@@ -41,6 +41,9 @@ export function isbn10To13(isbn10: string): string {
 
 export function isbn13To10(isbn13: string): string | undefined {
   const cleaned = cleanIsbn(isbn13);
+  // Only a checksum-valid ISBN-13 yields a meaningful ISBN-10 counterpart;
+  // a malformed or 979-prefixed number has no counterpart at all.
+  if (!isValidIsbn13(cleaned)) return undefined;
   if (!cleaned.startsWith('978')) return undefined;
   const core = cleaned.slice(3, 12);
   let sum = 0;

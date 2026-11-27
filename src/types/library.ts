@@ -27,6 +27,7 @@ export interface Book {
   publication_year?: number;
   language?: string;
   page_count?: number;
+  stock_count?: number;
   publisher_id?: string;
   publisher?: Publisher;
   cover_url?: string;
@@ -71,6 +72,7 @@ export interface ScannedBookMetadata {
   description?: string;
   language?: string;
   pageCount?: number;
+  stockCount?: number;
   coverUrl?: string;
   alternateCoverUrl?: string;
   categories: string[];

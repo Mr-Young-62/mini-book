@@ -18,18 +18,18 @@ export const DesktopUpdateBanner: React.FC<DesktopUpdateBannerProps> = ({
   onUpdate,
   onDismiss,
 }) => (
-  <div className="fixed inset-x-4 top-4 z-[90] mx-auto flex max-w-lg items-center justify-between gap-4 rounded-2xl border border-[#ECEEF2] bg-white p-4 shadow-xl">
+  <div className="fixed inset-x-4 top-4 z-[90] mx-auto flex max-w-lg items-center justify-between gap-4 rounded-[18px] bg-white p-4 shadow-xl">
     <div className="min-w-0">
-      <p className="text-sm font-bold text-[#14181F]">
+      <p className="text-sm font-bold text-[#262925]">
         {version ? `Pembaruan v${version} tersedia` : 'Pembaruan tersedia'}
       </p>
-      <p className="truncate text-xs text-[#6E737D]">
+      <p className="truncate text-xs text-[#737770]">
         {error ? error : downloading ? 'Mengunduh dan memasang...' : notes || 'Perbaikan dan penyempurnaan aplikasi.'}
       </p>
     </div>
     <div className="flex shrink-0 items-center gap-2">
       {!downloading && (
-        <button type="button" onClick={onDismiss} className="text-xs font-medium text-[#6E737D]">
+        <button type="button" onClick={onDismiss} className="rounded-[12px] px-2.5 py-1.5 text-xs font-medium text-[#686C65] hover:bg-[#F2EFE8]">
           Nanti
         </button>
       )}
@@ -37,7 +37,7 @@ export const DesktopUpdateBanner: React.FC<DesktopUpdateBannerProps> = ({
         type="button"
         onClick={onUpdate}
         disabled={downloading}
-        className="inline-flex items-center gap-1 rounded-xl bg-[#18362F] px-3.5 py-2 text-xs font-semibold text-white hover:bg-[#112822] disabled:opacity-60"
+        className="btn-primary-tactile inline-flex items-center gap-1 rounded-[12px] px-3.5 py-2 text-xs font-semibold disabled:opacity-60"
       >
         {downloading ? (
           <RefreshCw className="h-3.5 w-3.5 animate-spin" />

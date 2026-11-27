@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   BookOpen,
-  CalendarClock,
   Check,
   CheckCircle2,
   Clock3,
@@ -22,10 +21,16 @@ import {
   loanStatusLabel,
   toLocalDateString,
 } from '../lib/loans';
+import { getActiveLoanCountByBook, getBookStockInfo } from '../lib/stock';
 import { LibraryService } from '../services/libraryService';
 import { LoanService } from '../services/loanService';
 import { Book, LoanRecord, LoanStatus } from '../types/library';
 import { BookCard } from '../components/BookCard';
+import { useToast } from '../components/ToastProvider';
+import {
+  EmptyLoansIllustration,
+  EmptySearchIllustration,
+} from '../components/LibraryIllustrations';
 
 type FilterTab = 'all' | LoanStatus;
 type PickerMode = 'catalog' | 'manual';
@@ -35,6 +40,9 @@ const QUICK_DURATIONS = [3, 7, 14] as const;
 interface LoansPageProps {
   initialBook?: Book | null;
   onClearInitialBook?: () => void;
+  initialFilterTab?: FilterTab;
+  onClearInitialFilter?: () => void;
+  onLoansChanged?: (loans: LoanRecord[]) => void;
 }
 
 const formatBookAuthors = (book: Book): string => {
@@ -50,7 +58,11 @@ const formatBookAuthors = (book: Book): string => {
 export const LoansPage: React.FC<LoansPageProps> = ({
   initialBook,
   onClearInitialBook,
+  initialFilterTab,
+  onClearInitialFilter,
+  onLoansChanged,
 }) => {
+  const { notify } = useToast();
   const [loans, setLoans] = useState<LoanRecord[]>([]);
   const [books, setBooks] = useState<Book[]>([]);
   const [loading, setLoading] = useState(true);
@@ -84,6 +96,7 @@ export const LoansPage: React.FC<LoansPageProps> = ({
         LibraryService.getAllBooks(),
       ]);
       setLoans(loanResult.loans);
+      onLoansChanged?.(loanResult.loans);
       setLocalFallback(loanResult.localFallback);
       setBooks(bookRows);
     } catch (error) {
@@ -100,6 +113,12 @@ export const LoansPage: React.FC<LoansPageProps> = ({
   useEffect(() => {
     loadData();
   }, []);
+
+  useEffect(() => {
+    if (!initialFilterTab) return;
+    setFilterTab(initialFilterTab);
+    onClearInitialFilter?.();
+  }, [initialFilterTab, onClearInitialFilter]);
 
   useEffect(() => {
     if (!initialBook) return;
@@ -161,15 +180,10 @@ export const LoansPage: React.FC<LoansPageProps> = ({
     [books],
   );
 
-  const activeLoanBookIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const loan of enrichedLoans) {
-      if (loan.status !== 'returned' && loan.book_id) {
-        ids.add(loan.book_id);
-      }
-    }
-    return ids;
-  }, [enrichedLoans]);
+  const activeLoanCountMap = useMemo(
+    () => getActiveLoanCountByBook(loans),
+    [loans],
+  );
 
   const matchingCatalogBooks = useMemo(() => {
     const query = bookPickerQuery.trim().toLowerCase();
@@ -282,6 +296,19 @@ export const LoansPage: React.FC<LoansPageProps> = ({
       return;
     }
 
+    if (pickerMode === 'catalog' && selectedBook) {
+      const stock = getBookStockInfo(
+        selectedBook,
+        activeLoanCountMap.get(selectedBook.id) ?? 0,
+      );
+      if (stock.isOutOfStock) {
+        setFormError(
+          `Semua eksemplar “${selectedBook.title}” sedang dipinjam (${stock.borrowed}/${stock.total}). Tambah stok di Rak Buku atau tunggu pengembalian.`,
+        );
+        return;
+      }
+    }
+
     setSubmitting(true);
     setFormError(null);
     try {
@@ -296,9 +323,27 @@ export const LoansPage: React.FC<LoansPageProps> = ({
         due_date: dueDate,
         notes: notes.trim() || undefined,
       });
-      setLoans((prev) => [result.loan, ...prev]);
+      const nextLoans = [result.loan, ...loans];
+      setLoans(nextLoans);
+      onLoansChanged?.(nextLoans);
       setLocalFallback(result.localFallback);
       setShowForm(false);
+
+      let stockHint = '';
+      if (pickerMode === 'catalog' && selectedBook) {
+        const afterStock = getBookStockInfo(
+          selectedBook,
+          (activeLoanCountMap.get(selectedBook.id) ?? 0) + 1,
+        );
+        stockHint = afterStock.isOutOfStock
+          ? ' Stok di rak kini habis.'
+          : ` Sisa di rak: ${afterStock.available}/${afterStock.total}.`;
+      }
+      notify({
+        tone: 'loan',
+        title: 'Peminjaman dicatat',
+        description: `${borrowerName.trim()} meminjam “${resolvedTitle}” hingga ${formatShortDateId(dueDate)}.${stockHint}`,
+      });
     } catch (error) {
       setFormError(
         error instanceof Error
@@ -313,26 +358,41 @@ export const LoansPage: React.FC<LoansPageProps> = ({
   const handleMarkReturned = async (loanId: string) => {
     try {
       const result = await LoanService.markReturned(loanId);
-      setLoans((prev) =>
-        prev.map((row) => (row.id === loanId ? result.loan : row)),
-      );
+      const nextLoans = loans.map((row) => (row.id === loanId ? result.loan : row));
+      setLoans(nextLoans);
+      onLoansChanged?.(nextLoans);
       setLocalFallback(result.localFallback);
+      notify({
+        tone: 'success',
+        title: 'Pengembalian berhasil',
+        description: `“${result.loan.item_name}” dari ${result.loan.borrower_name} telah kembali ke rak.`,
+      });
     } catch (error) {
-      setPageError(
+      const message =
         error instanceof Error
           ? error.message
-          : 'Gagal menandai pinjaman dikembalikan.',
-      );
+          : 'Gagal menandai pinjaman dikembalikan.';
+      setPageError(message);
+      notify({
+        tone: 'error',
+        title: 'Gagal mencatat pengembalian',
+        description: message,
+      });
     }
   };
 
   const handleReopenLoan = async (loanId: string) => {
     try {
       const result = await LoanService.reopenLoan(loanId);
-      setLoans((prev) =>
-        prev.map((row) => (row.id === loanId ? result.loan : row)),
-      );
+      const nextLoans = loans.map((row) => (row.id === loanId ? result.loan : row));
+      setLoans(nextLoans);
+      onLoansChanged?.(nextLoans);
       setLocalFallback(result.localFallback);
+      notify({
+        tone: 'loan',
+        title: 'Status pinjaman dibuka ulang',
+        description: `“${result.loan.item_name}” kembali tercatat sedang dipinjam.`,
+      });
     } catch (error) {
       setPageError(
         error instanceof Error
@@ -345,7 +405,9 @@ export const LoansPage: React.FC<LoansPageProps> = ({
   const handleDeleteLoan = async (loanId: string) => {
     try {
       await LoanService.deleteLoan(loanId);
-      setLoans((prev) => prev.filter((row) => row.id !== loanId));
+      const nextLoans = loans.filter((row) => row.id !== loanId);
+      setLoans(nextLoans);
+      onLoansChanged?.(nextLoans);
     } catch (error) {
       setPageError(
         error instanceof Error
@@ -372,7 +434,7 @@ export const LoansPage: React.FC<LoansPageProps> = ({
   const renderStatusBadge = (status: LoanStatus) => {
     if (status === 'returned') {
       return (
-        <span className="inline-flex items-center gap-1.5 rounded-[8px] bg-[#E8EFEB] px-2.5 py-1 text-xs font-semibold text-[#24483D]">
+        <span className="inline-flex items-center gap-1.5 rounded-[10px] bg-[#E5F2EE] px-2.5 py-1 text-xs font-semibold text-[#165243]">
           <CheckCircle2 className="w-3.5 h-3.5" strokeWidth={1.5} aria-hidden="true" />
           <span>{loanStatusLabel[status]}</span>
         </span>
@@ -380,14 +442,14 @@ export const LoansPage: React.FC<LoansPageProps> = ({
     }
     if (status === 'overdue') {
       return (
-        <span className="inline-flex items-center gap-1.5 rounded-[8px] bg-[#F7EAE4] px-2.5 py-1 text-xs font-semibold text-[#9E4028]">
+        <span className="inline-flex items-center gap-1.5 rounded-[10px] bg-[#F7EAE4] px-2.5 py-1 text-xs font-semibold text-[#9E4028]">
           <AlertTriangle className="w-3.5 h-3.5" strokeWidth={1.5} aria-hidden="true" />
           <span>{loanStatusLabel[status]}</span>
         </span>
       );
     }
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-[8px] bg-[#F1EDE4] px-2.5 py-1 text-xs font-semibold text-[#262925]">
+      <span className="inline-flex items-center gap-1.5 rounded-[10px] bg-[#F7EDD6] px-2.5 py-1 text-xs font-semibold text-[#7A510B]">
         <Clock3 className="w-3.5 h-3.5" strokeWidth={1.5} aria-hidden="true" />
         <span>{loanStatusLabel[status]}</span>
       </span>
@@ -399,10 +461,10 @@ export const LoansPage: React.FC<LoansPageProps> = ({
       {/* Page header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
         <div>
-          <h1 className="text-[28px] md:text-[32px] font-bold tracking-[-0.02em] text-[#262925]">
+          <h1 className="page-title">
             Pinjaman
           </h1>
-          <p className="text-sm md:text-[15px] text-[#575B54] mt-1">
+          <p className="text-[13px] md:text-[15px] leading-[1.55] text-[#686C65] mt-1">
             Catat peminjam, pantau durasi pinjam berjalan, dan pastikan buku kembali tepat waktu.
           </p>
         </div>
@@ -410,53 +472,97 @@ export const LoansPage: React.FC<LoansPageProps> = ({
         <button
           type="button"
           onClick={openNewLoanModal}
-          className="inline-flex items-center justify-center gap-2 min-h-[50px] w-full sm:w-auto px-5 bg-[#24483D] text-white text-sm font-semibold rounded-full hover:bg-[#19382F] transition-colors shrink-0"
+          className="btn-hero-marigold inline-flex items-center justify-center gap-2 min-h-[44px] sm:min-h-[46px] w-full sm:w-auto px-5 text-[13.5px] sm:text-sm font-bold rounded-[12px] shrink-0"
         >
-          <Plus className="w-4 h-4" strokeWidth={1.5} aria-hidden="true" />
+          <Plus className="w-4 h-4" strokeWidth={1.75} aria-hidden="true" />
           <span>Catat pinjaman</span>
         </button>
       </div>
 
       {localFallback && (
-        <div className="rounded-[12px] bg-[#F5EEDB] px-4 py-3 text-xs font-medium text-[#262925]">
+        <div className="rounded-[18px] bg-[#F7EDD6] px-4 py-3 text-xs font-medium text-[#7A510B]">
           Tabel cloud pinjaman belum terpasang. Data pinjaman sementara disimpan di perangkat ini.
         </div>
       )}
 
       {pageError && (
-        <div role="alert" className="rounded-[12px] bg-[#FDECEC] px-4 py-3 text-xs font-medium text-[#B3261E]">
+        <div role="alert" className="rounded-[18px] bg-[#FDECEC] px-4 py-3 text-xs font-medium text-[#B3261E]">
           {pageError}
         </div>
       )}
 
-      {/* Summary tiles */}
-      <div className="grid grid-cols-3 gap-2 sm:gap-3">
-        <div className="bg-white rounded-[14px] p-3 sm:p-4 flex flex-col justify-between">
-          <span className="text-[11px] sm:text-xs font-medium text-[#575B54]">Dipinjam</span>
-          <div className="mt-1.5 text-xl sm:text-2xl font-bold tracking-[-0.02em] text-[#262925]">
+      {counts.overdue > 0 && (
+        <div
+          role="alert"
+          className="rounded-[18px] bg-[#F7EAE4] border-l-4 border-[#B9543A] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+        >
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-[#B9543A] shrink-0 mt-0.5" strokeWidth={1.75} aria-hidden="true" />
+            <div>
+              <p className="text-sm font-bold text-[#9E4028]">
+                {counts.overdue} pinjaman melewati batas pengembalian
+              </p>
+              <p className="text-xs text-[#9E4028]/85 mt-0.5">
+                Segera ingatkan peminjam atau tandai sudah dikembalikan agar stok buku kembali tersedia di rak.
+              </p>
+            </div>
+          </div>
+          {filterTab !== 'overdue' && (
+            <button
+              type="button"
+              onClick={() => setFilterTab('overdue')}
+              className="inline-flex min-h-[38px] shrink-0 items-center justify-center rounded-[12px] bg-[#B9543A] px-4 text-xs font-semibold text-white hover:bg-[#9E4028]"
+            >
+              Lihat yang terlambat
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Summary strip as iOS grouped surface */}
+      <div className="rounded-[18px] overflow-hidden shadow-[0_1px_3px_rgba(38,41,37,0.04)] grid grid-cols-3 gap-px bg-[#ECE7DD]">
+        <div className="bg-white p-3.5 sm:p-4 flex flex-col justify-between">
+          <span className="text-[11px] sm:text-xs font-medium text-[#686C65]">Dipinjam</span>
+          <div className="mt-1 text-xl sm:text-2xl font-bold tracking-[-0.02em] tabular-nums text-[#262925]">
             {counts.active}
           </div>
-          <span className="hidden sm:block text-xs text-[#575B54] mt-1">Pinjaman aktif berjalan</span>
+          <span className="hidden sm:block text-xs text-[#737770] mt-1">Pinjaman aktif berjalan</span>
         </div>
 
-        <div className="bg-[#F7EAE4] rounded-[14px] p-3 sm:p-4 flex flex-col justify-between">
-          <span className="text-[11px] sm:text-xs font-medium text-[#9E4028]">Terlambat</span>
-          <div className="mt-1.5 text-xl sm:text-2xl font-bold tracking-[-0.02em] text-[#9E4028]">
+        <div className="bg-white p-3.5 sm:p-4 flex flex-col justify-between">
+          <span
+            className={`text-[11px] sm:text-xs font-medium ${
+              counts.overdue > 0 ? 'text-[#9E4028]' : 'text-[#686C65]'
+            }`}
+          >
+            Terlambat
+          </span>
+          <div
+            className={`mt-1 text-xl sm:text-2xl font-bold tracking-[-0.02em] tabular-nums ${
+              counts.overdue > 0 ? 'text-[#9E4028]' : 'text-[#262925]'
+            }`}
+          >
             {counts.overdue}
           </div>
-          <span className="hidden sm:block text-xs text-[#9E4028] mt-1">Lewat batas pengembalian</span>
+          <span
+            className={`hidden sm:block text-xs mt-1 ${
+              counts.overdue > 0 ? 'text-[#9E4028]' : 'text-[#737770]'
+            }`}
+          >
+            Lewat batas pengembalian
+          </span>
         </div>
 
-        <div className="bg-[#E8EFEB] rounded-[14px] p-3 sm:p-4 flex flex-col justify-between">
-          <span className="text-[11px] sm:text-xs font-medium text-[#24483D]">Kembali</span>
-          <div className="mt-1.5 text-xl sm:text-2xl font-bold tracking-[-0.02em] text-[#24483D]">
+        <div className="bg-white p-3.5 sm:p-4 flex flex-col justify-between">
+          <span className="text-[11px] sm:text-xs font-medium text-[#165243]">Kembali</span>
+          <div className="mt-1 text-xl sm:text-2xl font-bold tracking-[-0.02em] tabular-nums text-[#1F6F5B]">
             {counts.returned}
           </div>
-          <span className="hidden sm:block text-xs text-[#24483D] mt-1">Selesai dikembalikan</span>
+          <span className="hidden sm:block text-xs text-[#737770] mt-1">Selesai dikembalikan</span>
         </div>
       </div>
 
-      {/* Filter tabs + search */}
+      {/* Filter pill chips + search */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5">
         <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
           {filterOptions.map((tab) => {
@@ -467,13 +573,15 @@ export const LoansPage: React.FC<LoansPageProps> = ({
                 type="button"
                 aria-pressed={active}
                 onClick={() => setFilterTab(tab.key)}
-                className={`min-h-[38px] px-3.5 rounded-[10px] text-xs font-semibold transition-colors ${
+                className={`min-h-[36px] px-4 rounded-full text-xs font-semibold transition-colors tabular-nums ${
                   active
-                    ? 'bg-[#24483D] text-white'
-                    : 'bg-white text-[#575B54] hover:bg-[#F1EDE4] hover:text-[#262925]'
+                    ? 'bg-[#1F6F5B] text-white'
+                    : 'bg-white shadow-[0_1px_2px_rgba(38,41,37,0.05)] text-[#363A34] hover:bg-[#ECE8DF] hover:text-[#262925]'
                 }`}
               >
-                {tab.label} ({tab.count})
+                <span className="reserve-bold items-center" data-label={`${tab.label} (${tab.count})`}>
+                  {tab.label} ({tab.count})
+                </span>
               </button>
             );
           })}
@@ -481,7 +589,7 @@ export const LoansPage: React.FC<LoansPageProps> = ({
 
         <div className="relative w-full md:w-72">
           <Search
-            className="w-4 h-4 text-[#575B54] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
+            className="w-4 h-4 text-[#686C65] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
             strokeWidth={1.5}
             aria-hidden="true"
           />
@@ -491,29 +599,31 @@ export const LoansPage: React.FC<LoansPageProps> = ({
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Cari nama peminjam atau barang..."
             aria-label="Cari catatan pinjaman"
-            className="w-full min-h-[44px] pl-10 pr-4 bg-white rounded-[10px] text-sm text-[#262925] placeholder:text-[#575B54] focus:bg-[#FAF8F3] transition-colors"
+            className="w-full min-h-[44px] pl-10 pr-4 bg-white shadow-[0_1px_3px_rgba(38,41,37,0.05)] rounded-[12px] text-sm text-[#262925] placeholder:text-[#686C65] focus:outline-none focus:ring-2 focus:ring-[#1F6F5B]/20 transition-shadow"
           />
         </div>
       </div>
 
       {/* Loans list */}
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {[1, 2, 3, 4].map((idx) => (
-            <div key={idx} className="h-44 rounded-[16px] bg-[#F1EDE4] animate-pulse" />
+        <div className="rounded-[18px] bg-white shadow-[0_1px_3px_rgba(38,41,37,0.04)] divide-y divide-[#ECE7DD]">
+          {[1, 2, 3].map((idx) => (
+            <div key={idx} className="h-32 animate-pulse bg-white first:rounded-t-[18px] last:rounded-b-[18px]" />
           ))}
         </div>
       ) : filteredLoans.length === 0 ? (
-        <div className="bg-white rounded-[16px] px-5 py-10 text-center">
-          <div className="mx-auto mb-3 w-11 h-11 rounded-[10px] bg-[#E8EFEB] flex items-center justify-center text-[#24483D]">
-            <CalendarClock className="w-5 h-5" strokeWidth={1.5} aria-hidden="true" />
-          </div>
-          <h2 className="text-base font-semibold text-[#262925]">
+        <div className="bg-white rounded-[18px] shadow-[0_1px_3px_rgba(38,41,37,0.04)] px-5 py-10 text-center">
+          {loans.length === 0 ? (
+            <EmptyLoansIllustration className="mb-3" />
+          ) : (
+            <EmptySearchIllustration className="mb-3" />
+          )}
+          <h2 className="text-[15px] sm:text-base font-semibold text-[#262925]">
             {loans.length === 0
               ? 'Belum ada catatan pinjaman'
               : 'Tidak ada pinjaman yang cocok'}
           </h2>
-          <p className="text-sm text-[#575B54] mt-1 max-w-md mx-auto">
+          <p className="text-[13px] sm:text-sm leading-[1.55] text-[#737770] mt-1 max-w-md mx-auto">
             {loans.length === 0
               ? 'Mulai catat buku atau barang yang sedang dipinjam beserta nama peminjam dan batas kembalinya.'
               : 'Coba ubah filter status atau kata kunci pencarian.'}
@@ -522,22 +632,22 @@ export const LoansPage: React.FC<LoansPageProps> = ({
             <button
               type="button"
               onClick={openNewLoanModal}
-              className="mt-4 inline-flex items-center gap-2 min-h-[50px] px-5 bg-[#24483D] text-white text-sm font-semibold rounded-full hover:bg-[#19382F]"
+              className="btn-hero-marigold mt-4 inline-flex items-center gap-2 min-h-[46px] px-5 text-sm font-bold rounded-[12px]"
             >
-              <Plus className="w-4 h-4" strokeWidth={1.5} aria-hidden="true" />
+              <Plus className="w-4 h-4" strokeWidth={1.75} aria-hidden="true" />
               <span>Catat pinjaman pertama</span>
             </button>
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="rounded-[18px] bg-white shadow-[0_1px_3px_rgba(38,41,37,0.04)] overflow-hidden divide-y divide-[#ECE7DD]">
           {filteredLoans.map((loan) => {
             const linkedBook = loan.book_id ? bookById.get(loan.book_id) : undefined;
             const isOverdue = loan.status === 'overdue';
             return (
               <div
                 key={loan.id}
-                className="relative overflow-hidden bg-white rounded-[16px] p-3.5 sm:p-4 flex flex-col justify-between gap-3 transition-colors hover:bg-[#F1EDE4]/45"
+                className="relative p-4 sm:p-5 flex flex-col justify-between gap-3.5 hover:bg-[#FAF9F5] transition-colors"
               >
                 {isOverdue && (
                   <span
@@ -545,7 +655,7 @@ export const LoansPage: React.FC<LoansPageProps> = ({
                     className="absolute inset-y-4 left-0 w-[3px] rounded-r-full bg-[#B9543A]"
                   />
                 )}
-                <div className={isOverdue ? 'pl-1.5' : ''}>
+                <div className={isOverdue ? 'pl-2' : ''}>
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-3 min-w-0">
                       {linkedBook && (
@@ -563,7 +673,7 @@ export const LoansPage: React.FC<LoansPageProps> = ({
                         <h3 className="book-title text-[#262925]">
                           {loan.item_name}
                         </h3>
-                        <p className="mt-0.5 inline-flex items-center gap-1.5 text-[13px] font-normal text-[#575B54]">
+                        <p className="mt-0.5 inline-flex items-center gap-1.5 text-[13px] font-normal text-[#686C65]">
                           <User className="w-3.5 h-3.5" strokeWidth={1.5} aria-hidden="true" />
                           <span>Peminjam: {loan.borrower_name}</span>
                         </p>
@@ -572,34 +682,34 @@ export const LoansPage: React.FC<LoansPageProps> = ({
                     {renderStatusBadge(loan.status)}
                   </div>
 
-                  {/* Duration tracker & dates */}
-                  <div className="mt-3 grid grid-cols-3 gap-2 bg-[#FAF8F3] rounded-[10px] p-3">
+                  {/* Hairline-separated date & duration strip */}
+                  <div className="mt-3.5 grid grid-cols-3 gap-3 border-t border-[#ECE7DD] pt-3">
                     <div>
-                      <span className="block text-xs font-normal text-[#575B54]">
+                      <span className="block text-xs font-normal text-[#686C65]">
                         Dipinjam
                       </span>
-                      <span className="mt-0.5 block text-xs font-medium text-[#262925]">
+                      <span className="mt-0.5 block text-xs font-medium text-[#262925] tabular-nums">
                         {formatShortDateId(loan.borrowed_at)}
                       </span>
                     </div>
                     <div>
-                      <span className="block text-xs font-normal text-[#575B54]">
+                      <span className="block text-xs font-normal text-[#686C65]">
                         Batas kembali
                       </span>
-                      <span className="mt-0.5 block text-xs font-medium text-[#262925]">
+                      <span className="mt-0.5 block text-xs font-medium text-[#262925] tabular-nums">
                         {formatShortDateId(loan.due_date)}
                       </span>
                     </div>
                     <div>
-                      <span className="block text-xs font-normal text-[#575B54]">
+                      <span className="block text-xs font-normal text-[#686C65]">
                         Durasi
                       </span>
                       <span
-                        className={`mt-0.5 block text-xs font-medium ${
+                        className={`mt-0.5 block text-xs font-medium tabular-nums ${
                           isOverdue
                             ? 'text-[#9E4028]'
                             : loan.status === 'returned'
-                            ? 'text-[#24483D]'
+                            ? 'text-[#165243]'
                             : 'text-[#262925]'
                         }`}
                       >
@@ -609,19 +719,19 @@ export const LoansPage: React.FC<LoansPageProps> = ({
                   </div>
 
                   {loan.notes && (
-                    <p className="mt-2.5 text-xs text-[#575B54] leading-relaxed">
+                    <p className="mt-2.5 text-xs text-[#737770] leading-relaxed">
                       Catatan: {loan.notes}
                     </p>
                   )}
                 </div>
 
                 {/* Actions */}
-                <div className={`flex items-center justify-between gap-2 pt-1 ${isOverdue ? 'pl-1.5' : ''}`}>
+                <div className={`flex items-center justify-between gap-2 ${isOverdue ? 'pl-2' : ''}`}>
                   {loan.status === 'returned' ? (
                     <button
                       type="button"
                       onClick={() => handleReopenLoan(loan.id)}
-                      className="inline-flex items-center gap-1.5 min-h-[40px] px-3.5 rounded-[10px] bg-[#F1EDE4] text-xs font-semibold text-[#262925] hover:bg-[#E7E1D5]"
+                      className="inline-flex items-center gap-1.5 min-h-[40px] px-3.5 rounded-[12px] bg-[#F2EFE8] text-xs font-semibold text-[#262925] hover:bg-[#E7E2D7]"
                     >
                       <RotateCcw className="w-3.5 h-3.5" strokeWidth={1.5} aria-hidden="true" />
                       <span>Tandai dipinjam lagi</span>
@@ -630,7 +740,7 @@ export const LoansPage: React.FC<LoansPageProps> = ({
                     <button
                       type="button"
                       onClick={() => handleMarkReturned(loan.id)}
-                      className="inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-full bg-[#24483D] text-white text-xs font-semibold hover:bg-[#19382F]"
+                      className="btn-primary-tactile inline-flex items-center gap-1.5 min-h-[42px] px-4 rounded-[12px] text-xs font-semibold"
                     >
                       <CheckCircle2 className="w-4 h-4" strokeWidth={1.5} aria-hidden="true" />
                       <span>Tandai dikembalikan</span>
@@ -641,7 +751,7 @@ export const LoansPage: React.FC<LoansPageProps> = ({
                     type="button"
                     onClick={() => handleDeleteLoan(loan.id)}
                     aria-label={`Hapus catatan pinjaman ${loan.item_name}`}
-                    className="inline-flex items-center justify-center w-10 h-10 rounded-[10px] bg-[#FAF8F3] text-[#B3261E] hover:bg-[#FDECEC]"
+                    className="inline-flex items-center justify-center w-10 h-10 rounded-[12px] bg-[#FDECEC]/70 text-[#B3261E] hover:bg-[#FDECEC]"
                   >
                     <Trash2 className="w-4 h-4" strokeWidth={1.5} aria-hidden="true" />
                   </button>
@@ -662,7 +772,7 @@ export const LoansPage: React.FC<LoansPageProps> = ({
           onClick={() => setShowForm(false)}
         >
           <div
-            className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-[16px] bg-white p-4 sm:p-6 space-y-4"
+            className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-[18px] bg-white p-4 sm:p-6 space-y-4 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between gap-3">
@@ -673,7 +783,7 @@ export const LoansPage: React.FC<LoansPageProps> = ({
                 >
                   Catat pinjaman baru
                 </h2>
-                <p className="text-xs text-[#575B54] mt-0.5">
+                <p className="text-xs text-[#737770] mt-0.5">
                   Pilih buku lewat pratinjau sampul atau catat barang manual.
                 </p>
               </div>
@@ -681,54 +791,58 @@ export const LoansPage: React.FC<LoansPageProps> = ({
                 type="button"
                 onClick={() => setShowForm(false)}
                 aria-label="Tutup form pinjaman"
-                className="w-9 h-9 rounded-[10px] bg-[#F1EDE4] text-[#575B54] hover:text-[#262925] flex items-center justify-center shrink-0"
+                className="w-9 h-9 rounded-[12px] bg-[#F2EFE8] text-[#262925] hover:bg-[#E7E2D7] flex items-center justify-center shrink-0"
               >
                 <X className="w-4 h-4" strokeWidth={1.5} aria-hidden="true" />
               </button>
             </div>
 
             <form onSubmit={handleCreateLoan} className="space-y-3.5">
-              {/* Segmented mode switch */}
-              <div className="grid grid-cols-2 gap-1 rounded-[12px] bg-[#FAF8F3] p-1">
+              {/* Pill Segmented Control */}
+              <div className="grid grid-cols-2 gap-1 rounded-full bg-[#E8E3D9] p-1">
                 <button
                   type="button"
                   aria-pressed={pickerMode === 'catalog'}
                   onClick={() => handleSelectPickerMode('catalog')}
-                  className={`inline-flex items-center justify-center gap-2 min-h-[40px] rounded-[8px] px-3 text-xs font-semibold transition-colors ${
+                  className={`inline-flex items-center justify-center gap-2 min-h-[38px] rounded-full px-3 text-xs font-semibold transition-all ${
                     pickerMode === 'catalog'
-                      ? 'bg-white text-[#24483D]'
-                      : 'text-[#575B54] hover:text-[#262925]'
+                      ? 'bg-white text-[#262925] shadow-[0_1px_2px_rgba(38,41,37,0.1)]'
+                      : 'text-[#686C65] hover:text-[#262925]'
                   }`}
                 >
                   <BookOpen className="w-3.5 h-3.5" strokeWidth={1.5} aria-hidden="true" />
-                  <span>Pilih dari Rak ({books.length})</span>
+                  <span className="reserve-bold items-center" data-label={`Pilih dari Rak (${books.length})`}>
+                    Pilih dari Rak ({books.length})
+                  </span>
                 </button>
                 <button
                   type="button"
                   aria-pressed={pickerMode === 'manual'}
                   onClick={() => handleSelectPickerMode('manual')}
-                  className={`inline-flex items-center justify-center gap-2 min-h-[40px] rounded-[8px] px-3 text-xs font-semibold transition-colors ${
+                  className={`inline-flex items-center justify-center gap-2 min-h-[38px] rounded-full px-3 text-xs font-semibold transition-all ${
                     pickerMode === 'manual'
-                      ? 'bg-white text-[#24483D]'
-                      : 'text-[#575B54] hover:text-[#262925]'
+                      ? 'bg-white text-[#262925] shadow-[0_1px_2px_rgba(38,41,37,0.1)]'
+                      : 'text-[#686C65] hover:text-[#262925]'
                   }`}
                 >
                   <Package className="w-3.5 h-3.5" strokeWidth={1.5} aria-hidden="true" />
-                  <span>Barang Manual</span>
+                  <span className="reserve-bold items-center" data-label="Barang Manual">
+                    Barang Manual
+                  </span>
                 </button>
               </div>
 
               {pickerMode === 'catalog' ? (
                 <div className="space-y-3">
                   {books.length === 0 ? (
-                    <div className="rounded-[12px] bg-[#FAF8F3] p-4 text-center space-y-2.5">
-                      <p className="text-xs text-[#575B54]">
+                    <div className="rounded-[12px] bg-[#F2EFE8] p-4 text-center space-y-2.5">
+                      <p className="text-xs text-[#686C65]">
                         Rak buku masih kosong. Kamu tetap bisa mencatat pinjaman secara manual.
                       </p>
                       <button
                         type="button"
                         onClick={() => handleSelectPickerMode('manual')}
-                        className="min-h-[40px] px-4 rounded-[10px] bg-[#24483D] text-white text-xs font-semibold hover:bg-[#19382F]"
+                        className="btn-primary-tactile min-h-[40px] px-4 rounded-[12px] text-xs font-semibold"
                       >
                         Isi nama barang manual
                       </button>
@@ -737,7 +851,7 @@ export const LoansPage: React.FC<LoansPageProps> = ({
                     <>
                       {/* Selected book strip */}
                       {selectedBook && (
-                        <div className="rounded-[12px] bg-[#E8EFEB] p-2.5 flex items-center justify-between gap-3">
+                        <div className="rounded-[12px] bg-[#E5F2EE] p-2.5 flex items-center justify-between gap-3">
                           <div className="flex items-center gap-3 min-w-0">
                             <div className="w-10 shrink-0">
                               <BookCard
@@ -749,14 +863,20 @@ export const LoansPage: React.FC<LoansPageProps> = ({
                               />
                             </div>
                             <div className="min-w-0">
-                              <p className="text-xs text-[#24483D] truncate">
+                              <p className="text-xs text-[#165243] truncate">
                                 <span className="font-normal">Dipilih:</span> <span className="font-book font-semibold">{selectedBook.title}</span>
                               </p>
                               <p className="text-[11px] text-[#363A34] truncate">
-                                {formatBookAuthors(selectedBook)}
-                                {activeLoanBookIds.has(selectedBook.id)
-                                  ? ' · Sedang dipinjam di catatan lain'
-                                  : ''}
+                                {formatBookAuthors(selectedBook)} ·{' '}
+                                {(() => {
+                                  const stock = getBookStockInfo(
+                                    selectedBook,
+                                    activeLoanCountMap.get(selectedBook.id) ?? 0,
+                                  );
+                                  return stock.isOutOfStock
+                                    ? `Stok habis (0/${stock.total})`
+                                    : `Tersedia ${stock.available}/${stock.total}`;
+                                })()}
                               </p>
                             </div>
                           </div>
@@ -766,7 +886,7 @@ export const LoansPage: React.FC<LoansPageProps> = ({
                               setSelectedBookId('');
                               setItemTitle('');
                             }}
-                            className="shrink-0 min-h-[34px] px-3 rounded-[8px] bg-white text-xs font-semibold text-[#262925] hover:bg-[#FAF8F3]"
+                            className="shrink-0 min-h-[34px] px-3 rounded-[10px] bg-white text-xs font-semibold text-[#262925] hover:bg-[#ECE8DF]"
                           >
                             Ganti
                           </button>
@@ -776,7 +896,7 @@ export const LoansPage: React.FC<LoansPageProps> = ({
                       {/* Live book search */}
                       <div className="relative">
                         <Search
-                          className="w-4 h-4 text-[#575B54] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                          className="w-4 h-4 text-[#686C65] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
                           strokeWidth={1.5}
                           aria-hidden="true"
                         />
@@ -789,14 +909,14 @@ export const LoansPage: React.FC<LoansPageProps> = ({
                           }}
                           placeholder="Cari judul buku, penulis, atau ISBN..."
                           aria-label="Cari buku di rak"
-                          className="w-full min-h-[44px] pl-10 pr-10 bg-[#FAF8F3] rounded-[10px] text-sm text-[#262925] placeholder:text-[#575B54] focus:bg-[#F1EDE4] transition-colors"
+                          className="w-full min-h-[44px] pl-10 pr-10 bg-[#F2EFE8] rounded-[12px] text-sm text-[#262925] placeholder:text-[#686C65] focus:bg-[#ECE8DF] focus:outline-none focus:ring-2 focus:ring-[#1F6F5B]/25 transition-colors"
                         />
                         {bookPickerQuery && (
                           <button
                             type="button"
                             onClick={() => setBookPickerQuery('')}
                             aria-label="Hapus kata kunci buku"
-                            className="w-7 h-7 rounded-[8px] bg-white text-[#575B54] hover:text-[#262925] flex items-center justify-center absolute right-2 top-1/2 -translate-y-1/2"
+                            className="w-7 h-7 rounded-[10px] bg-white text-[#686C65] hover:text-[#262925] flex items-center justify-center absolute right-2 top-1/2 -translate-y-1/2"
                           >
                             <X className="w-3.5 h-3.5" strokeWidth={1.5} aria-hidden="true" />
                           </button>
@@ -805,7 +925,7 @@ export const LoansPage: React.FC<LoansPageProps> = ({
 
                       {/* Slide count header + Show All toggle */}
                       <div className="flex items-center justify-between gap-2 px-0.5">
-                        <span className="text-xs font-medium text-[#575B54]">
+                        <span className="text-xs font-medium text-[#686C65]">
                           {matchingCatalogBooks.length === 0
                             ? 'Tidak ada buku yang cocok'
                             : showAllPickerBooks || matchingCatalogBooks.length <= 5
@@ -819,10 +939,10 @@ export const LoansPage: React.FC<LoansPageProps> = ({
                             onClick={() =>
                               setShowAllPickerBooks((prev) => !prev)
                             }
-                            className="text-xs font-semibold text-[#24483D] hover:text-[#19382F] px-3 py-1 rounded-[8px] bg-[#E8EFEB]"
+                            className="text-xs font-semibold text-[#165243] hover:text-[#1F6F5B] px-3 py-1 rounded-[10px] bg-[#E5F2EE] hover:bg-[#D6EAE4]"
                           >
                             {showAllPickerBooks
-                              ? 'Ringkas slide'
+                              ? 'Ringkas daftar'
                               : `Lihat semua (${matchingCatalogBooks.length})`}
                           </button>
                         )}
@@ -830,14 +950,14 @@ export const LoansPage: React.FC<LoansPageProps> = ({
 
                       {/* Empty search fallback or book cards */}
                       {matchingCatalogBooks.length === 0 ? (
-                        <div className="rounded-[12px] bg-[#FAF8F3] p-4 text-center space-y-2.5">
-                          <p className="text-xs text-[#575B54]">
-                            Buku "{bookPickerQuery.trim()}" tidak ditemukan di rak.
+                        <div className="rounded-[12px] bg-[#F2EFE8] p-4 text-center space-y-2.5">
+                          <p className="text-xs text-[#686C65]">
+                            Buku “{bookPickerQuery.trim()}” tidak ditemukan di rak.
                           </p>
                           <button
                             type="button"
                             onClick={handleUseQueryAsManual}
-                            className="min-h-[40px] px-4 rounded-[10px] bg-[#24483D] text-white text-xs font-semibold hover:bg-[#19382F]"
+                            className="btn-primary-tactile min-h-[40px] px-4 rounded-[12px] text-xs font-semibold"
                           >
                             Gunakan sebagai barang manual
                           </button>
@@ -846,17 +966,20 @@ export const LoansPage: React.FC<LoansPageProps> = ({
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-[260px] overflow-y-auto pr-1">
                           {visiblePickerBooks.map((book) => {
                             const isSelected = book.id === selectedBookId;
-                            const isOut = activeLoanBookIds.has(book.id);
+                            const stock = getBookStockInfo(
+                              book,
+                              activeLoanCountMap.get(book.id) ?? 0,
+                            );
                             return (
                               <button
                                 key={book.id}
                                 type="button"
                                 aria-pressed={isSelected}
                                 onClick={() => handlePickBook(book)}
-                                className={`group relative rounded-[12px] p-2 text-left transition-colors ${
+                                className={`group relative rounded-[14px] p-2.5 text-left transition-colors ${
                                   isSelected
-                                    ? 'bg-[#E8EFEB] ring-2 ring-[#24483D]'
-                                    : 'bg-[#FAF8F3] hover:bg-[#F1EDE4]'
+                                    ? 'bg-[#E5F2EE] ring-2 ring-[#1F6F5B]'
+                                    : 'bg-[#F2EFE8]/70 hover:bg-[#ECE8DF]'
                                 }`}
                               >
                                 <div className="relative">
@@ -865,21 +988,26 @@ export const LoansPage: React.FC<LoansPageProps> = ({
                                     title={book.title}
                                     author={book.authors?.[0]?.name}
                                     seed={book.id}
+                                    unavailable={stock.isOutOfStock}
                                     size="sm"
                                   />
                                   {isSelected && (
-                                    <span className="absolute top-2 right-2 w-6 h-6 rounded-full bg-[#24483D] text-white flex items-center justify-center">
+                                    <span className="absolute top-2 right-2 w-6 h-6 rounded-full bg-[#1F6F5B] text-white flex items-center justify-center">
                                       <Check className="w-3.5 h-3.5" strokeWidth={1.75} aria-hidden="true" />
                                     </span>
                                   )}
-                                  {isOut && (
-                                    <span className="absolute top-2 left-2 rounded-[6px] bg-[#F7EAE4] px-2 py-0.5 text-[10px] font-semibold text-[#9E4028]">
-                                      Dipinjam
+                                  {stock.isOutOfStock ? (
+                                    <span className="absolute top-2 left-2 rounded-[8px] bg-[#262925]/85 px-2 py-0.5 text-[10px] font-bold text-white tabular-nums">
+                                      Habis
                                     </span>
-                                  )}
+                                  ) : stock.borrowed > 0 ? (
+                                    <span className="absolute top-2 left-2 rounded-[8px] bg-[#F7EDD6] px-2 py-0.5 text-[10px] font-semibold text-[#7A510B] tabular-nums">
+                                      Sisa {stock.available}/{stock.total}
+                                    </span>
+                                  ) : null}
                                 </div>
                                 <div className="mt-2">
-                                  <div className="book-title text-[#262925]">
+                                  <div className="book-title book-title--reserve text-[#262925]">
                                     {book.title}
                                   </div>
                                   <div className="book-author mt-0.5 truncate">
@@ -894,17 +1022,20 @@ export const LoansPage: React.FC<LoansPageProps> = ({
                         <div className="flex gap-2.5 overflow-x-auto pb-1.5 snap-x snap-mandatory no-scrollbar">
                           {visiblePickerBooks.map((book) => {
                             const isSelected = book.id === selectedBookId;
-                            const isOut = activeLoanBookIds.has(book.id);
+                            const stock = getBookStockInfo(
+                              book,
+                              activeLoanCountMap.get(book.id) ?? 0,
+                            );
                             return (
                               <button
                                 key={book.id}
                                 type="button"
                                 aria-pressed={isSelected}
                                 onClick={() => handlePickBook(book)}
-                                className={`group relative w-[124px] shrink-0 snap-start rounded-[12px] p-2 text-left transition-colors ${
+                                className={`group relative w-[124px] shrink-0 snap-start rounded-[14px] p-2.5 text-left transition-colors ${
                                   isSelected
-                                    ? 'bg-[#E8EFEB] ring-2 ring-[#24483D]'
-                                    : 'bg-[#FAF8F3] hover:bg-[#F1EDE4]'
+                                    ? 'bg-[#E5F2EE] ring-2 ring-[#1F6F5B]'
+                                    : 'bg-[#F2EFE8]/70 hover:bg-[#ECE8DF]'
                                 }`}
                               >
                                 <div className="relative">
@@ -913,21 +1044,26 @@ export const LoansPage: React.FC<LoansPageProps> = ({
                                     title={book.title}
                                     author={book.authors?.[0]?.name}
                                     seed={book.id}
+                                    unavailable={stock.isOutOfStock}
                                     size="sm"
                                   />
                                   {isSelected && (
-                                    <span className="absolute top-2 right-2 w-6 h-6 rounded-full bg-[#24483D] text-white flex items-center justify-center">
+                                    <span className="absolute top-2 right-2 w-6 h-6 rounded-full bg-[#1F6F5B] text-white flex items-center justify-center">
                                       <Check className="w-3.5 h-3.5" strokeWidth={1.75} aria-hidden="true" />
                                     </span>
                                   )}
-                                  {isOut && (
-                                    <span className="absolute top-2 left-2 rounded-[6px] bg-[#F7EAE4] px-2 py-0.5 text-[10px] font-semibold text-[#9E4028]">
-                                      Dipinjam
+                                  {stock.isOutOfStock ? (
+                                    <span className="absolute top-2 left-2 rounded-[8px] bg-[#262925]/85 px-2 py-0.5 text-[10px] font-bold text-white tabular-nums">
+                                      Habis
                                     </span>
-                                  )}
+                                  ) : stock.borrowed > 0 ? (
+                                    <span className="absolute top-2 left-2 rounded-[8px] bg-[#F7EDD6] px-2 py-0.5 text-[10px] font-semibold text-[#7A510B] tabular-nums">
+                                      Sisa {stock.available}/{stock.total}
+                                    </span>
+                                  ) : null}
                                 </div>
                                 <div className="mt-2">
-                                  <div className="book-title text-[#262925]">
+                                  <div className="book-title book-title--reserve text-[#262925]">
                                     {book.title}
                                   </div>
                                   <div className="book-author mt-0.5 truncate">
@@ -946,149 +1082,151 @@ export const LoansPage: React.FC<LoansPageProps> = ({
                 <div>
                   <label
                     htmlFor="loan-item-title"
-                    className="block text-xs font-medium text-[#575B54] mb-1.5"
+                    className="block text-xs font-medium text-[#686C65] mb-1.5"
                   >
                     Nama barang / judul buku
                   </label>
                   <div className="relative">
                     <Package
-                      className="w-4 h-4 text-[#575B54] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                      className="w-4 h-4 text-[#686C65] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
                       strokeWidth={1.5}
                       aria-hidden="true"
                     />
-                    <input
-                      id="loan-item-title"
-                      type="text"
-                      value={itemTitle}
-                      onChange={(e) => setItemTitle(e.target.value)}
-                      placeholder="Contoh: Buku Paket Matematika atau Proyektor"
-                      className="w-full min-h-[46px] pl-10 pr-4 bg-[#FAF8F3] rounded-[10px] text-sm text-[#262925] placeholder:text-[#575B54]"
-                    />
+                      <input
+                        id="loan-item-title"
+                        type="text"
+                        value={itemTitle}
+                        onChange={(e) => setItemTitle(e.target.value)}
+                        placeholder="Contoh: Buku Paket Matematika atau Proyektor"
+                        className="w-full min-h-[46px] pl-10 pr-4 bg-[#F2EFE8] focus:bg-[#ECE8DF] focus:outline-none focus:ring-2 focus:ring-[#1F6F5B]/25 rounded-[12px] text-sm text-[#262925] placeholder:text-[#686C65]"
+                      />
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              <div>
-                <label
-                  htmlFor="loan-borrower-name"
-                  className="block text-xs font-medium text-[#575B54] mb-1.5"
-                >
-                  Nama peminjam
-                </label>
-                <input
-                  id="loan-borrower-name"
-                  type="text"
-                  value={borrowerName}
-                  onChange={(e) => setBorrowerName(e.target.value)}
-                  placeholder="Nama lengkap peminjam"
-                  className="w-full min-h-[46px] px-4 bg-[#FAF8F3] rounded-[10px] text-sm text-[#262925] placeholder:text-[#575B54]"
-                />
-              </div>
-
-              <div className="space-y-2.5">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  <div>
-                    <label
-                      htmlFor="loan-date"
-                      className="block text-xs font-medium text-[#575B54] mb-1.5"
-                    >
-                      Tanggal peminjaman
-                    </label>
-                    <input
-                      id="loan-date"
-                      type="date"
-                      value={loanDate}
-                      onChange={(e) => {
-                        const nextLoanDate = e.target.value;
-                        setLoanDate(nextLoanDate);
-                        if (activeDurationDays !== null) {
-                          setDueDate(
-                            addDaysToDateString(nextLoanDate, activeDurationDays),
-                          );
-                        }
-                      }}
-                      className="w-full min-h-[46px] px-4 bg-[#FAF8F3] rounded-[10px] text-sm text-[#262925]"
-                    />
-                  </div>
-                  <div>
-                    <label
-                      htmlFor="loan-due-date"
-                      className="block text-xs font-medium text-[#575B54] mb-1.5"
-                    >
-                      Tanggal pengembalian
-                    </label>
-                    <input
-                      id="loan-due-date"
-                      type="date"
-                      value={dueDate}
-                      onChange={(e) => setDueDate(e.target.value)}
-                      className="w-full min-h-[46px] px-4 bg-[#FAF8F3] rounded-[10px] text-sm text-[#262925]"
-                    />
-                  </div>
+                <div>
+                  <label
+                    htmlFor="loan-borrower-name"
+                    className="block text-xs font-medium text-[#686C65] mb-1.5"
+                  >
+                    Nama peminjam
+                  </label>
+                  <input
+                    id="loan-borrower-name"
+                    type="text"
+                    value={borrowerName}
+                    onChange={(e) => setBorrowerName(e.target.value)}
+                    placeholder="Nama lengkap peminjam"
+                    className="w-full min-h-[46px] px-4 bg-[#F2EFE8] focus:bg-[#ECE8DF] focus:outline-none focus:ring-2 focus:ring-[#1F6F5B]/25 rounded-[12px] text-sm text-[#262925] placeholder:text-[#686C65]"
+                  />
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-medium text-[#575B54]">
-                    Durasi cepat:
-                  </span>
-                  {QUICK_DURATIONS.map((days) => {
-                    const selected = activeDurationDays === days;
-                    return (
-                      <button
-                        key={days}
-                        type="button"
-                        aria-pressed={selected}
-                        onClick={() =>
-                          setDueDate(addDaysToDateString(loanDate, days))
-                        }
-                        className={`min-h-[34px] px-3.5 rounded-[8px] text-xs font-semibold transition-colors ${
-                          selected
-                            ? 'bg-[#24483D] text-white'
-                            : 'bg-[#FAF8F3] text-[#575B54] hover:bg-[#F1EDE4] hover:text-[#262925]'
-                        }`}
+                <div className="space-y-2.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label
+                        htmlFor="loan-date"
+                        className="block text-xs font-medium text-[#686C65] mb-1.5"
                       >
-                        +{days} hari
-                      </button>
-                    );
-                  })}
+                        Tanggal peminjaman
+                      </label>
+                      <input
+                        id="loan-date"
+                        type="date"
+                        value={loanDate}
+                        onChange={(e) => {
+                          const nextLoanDate = e.target.value;
+                          setLoanDate(nextLoanDate);
+                          if (activeDurationDays !== null) {
+                            setDueDate(
+                              addDaysToDateString(nextLoanDate, activeDurationDays),
+                            );
+                          }
+                        }}
+                        className="w-full min-h-[46px] px-4 bg-[#F2EFE8] focus:bg-[#ECE8DF] focus:outline-none focus:ring-2 focus:ring-[#1F6F5B]/25 rounded-[12px] text-sm text-[#262925]"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="loan-due-date"
+                        className="block text-xs font-medium text-[#686C65] mb-1.5"
+                      >
+                        Tanggal pengembalian
+                      </label>
+                      <input
+                        id="loan-due-date"
+                        type="date"
+                        value={dueDate}
+                        onChange={(e) => setDueDate(e.target.value)}
+                        className="w-full min-h-[46px] px-4 bg-[#F2EFE8] focus:bg-[#ECE8DF] focus:outline-none focus:ring-2 focus:ring-[#1F6F5B]/25 rounded-[12px] text-sm text-[#262925]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-medium text-[#686C65]">
+                      Durasi cepat:
+                    </span>
+                    {QUICK_DURATIONS.map((days) => {
+                      const selected = activeDurationDays === days;
+                      return (
+                        <button
+                          key={days}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() =>
+                            setDueDate(addDaysToDateString(loanDate, days))
+                          }
+                          className={`min-h-[34px] px-3.5 rounded-full text-xs font-semibold transition-colors ${
+                            selected
+                              ? 'bg-[#1F6F5B] text-white'
+                              : 'bg-[#F2EFE8] text-[#262925] hover:bg-[#E7E2D7]'
+                          }`}
+                        >
+                          <span className="reserve-bold items-center" data-label={`+${days} hari`}>
+                            +{days} hari
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
 
-              <div>
-                <label
-                  htmlFor="loan-notes"
-                  className="block text-xs font-medium text-[#575B54] mb-1.5"
-                >
-                  Catatan (opsional)
-                </label>
-                <input
-                  id="loan-notes"
-                  type="text"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Kondisi barang atau keterangan tambahan"
-                  className="w-full min-h-[46px] px-4 bg-[#FAF8F3] rounded-[10px] text-sm text-[#262925] placeholder:text-[#575B54]"
-                />
-              </div>
-
-              {formError && (
-                <div role="alert" className="rounded-[10px] bg-[#FDECEC] px-4 py-3 text-xs font-medium text-[#B3261E]">
-                  {formError}
+                <div>
+                  <label
+                    htmlFor="loan-notes"
+                    className="block text-xs font-medium text-[#686C65] mb-1.5"
+                  >
+                    Catatan (opsional)
+                  </label>
+                  <input
+                    id="loan-notes"
+                    type="text"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Kondisi barang atau keterangan tambahan"
+                    className="w-full min-h-[46px] px-4 bg-[#F2EFE8] focus:bg-[#ECE8DF] focus:outline-none focus:ring-2 focus:ring-[#1F6F5B]/25 rounded-[12px] text-sm text-[#262925] placeholder:text-[#686C65]"
+                  />
                 </div>
-              )}
 
-              <div className="pt-2 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowForm(false)}
-                  className="min-h-[46px] w-full sm:w-auto px-5 rounded-[10px] bg-[#F1EDE4] text-sm font-semibold text-[#262925] hover:bg-[#E7E1D5]"
-                >
-                  Batal
-                </button>
+                {formError && (
+                  <div role="alert" className="rounded-[12px] bg-[#FDECEC] px-4 py-3 text-xs font-medium text-[#B3261E]">
+                    {formError}
+                  </div>
+                )}
+
+                <div className="pt-3 border-t border-[#ECE7DD] flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowForm(false)}
+                    className="min-h-[44px] w-full sm:w-auto px-5 rounded-[12px] bg-[#F2EFE8] text-sm font-semibold text-[#262925] hover:bg-[#E7E2D7]"
+                  >
+                    Batal
+                  </button>
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="min-h-[50px] w-full sm:w-auto px-6 rounded-full bg-[#24483D] text-white text-sm font-semibold hover:bg-[#19382F] disabled:opacity-60"
+                  className="btn-primary-tactile min-h-[44px] w-full sm:w-auto px-6 rounded-[12px] text-sm font-semibold disabled:opacity-60"
                 >
                   {submitting ? 'Menyimpan...' : 'Simpan pinjaman'}
                 </button>

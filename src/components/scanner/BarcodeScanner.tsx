@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { BarcodeFormat, BrowserMultiFormatReader, DecodeHintType } from '@zxing/library';
-import { Flashlight, RotateCcw, ImagePlus, Camera, Search, AlertCircle, X } from 'lucide-react';
+import { Flashlight, RotateCcw, ImagePlus, Camera, AlertCircle, X } from 'lucide-react';
 import { resolveScannedCode, type ResolvedCode } from '../../services/codeResolver';
 
 type Engine = 'native' | 'zxing';
@@ -33,12 +33,13 @@ interface Props {
 
 export function BarcodeScanner({ onDetected, onScan, onClose, active = true, isProcessing = false, onResetScan }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const readerRef = useRef<BrowserMultiFormatReader | null>(null);
   const lastRef = useRef<LastSeen>({ text: '', count: 0, at: 0, firstSeen: 0, format: '', engine: 'zxing' });
   const doneRef = useRef(false);
   const [error, setError] = useState('');
   const [torchOn, setTorchOn] = useState(false);
-  const [manual, setManual] = useState('');
+  const [cameraRetryKey, setCameraRetryKey] = useState(0);
   const [hint, setHint] = useState('Arahkan kamera ke barcode / QR di buku');
   const [rawValue, setRawValue] = useState('');
   const [detectedFormat, setDetectedFormat] = useState('');
@@ -65,7 +66,13 @@ export function BarcodeScanner({ onDetected, onScan, onClose, active = true, isP
 
     const resolved = resolveScannedCode(value);
     setRawValue(value);
-    setDetectedFormat(format ? formatLabel(format) : 'UNKNOWN');
+    const cleanedFormat =
+      format && format.toUpperCase() !== 'UNKNOWN'
+        ? formatLabel(format)
+        : resolved.kind === 'isbn'
+        ? 'ISBN'
+        : '';
+    setDetectedFormat(cleanedFormat);
 
     if (resolved.kind === 'invalid_isbn') {
       setHint(`Kode ${resolved.digits} terbaca, tetapi checksum ISBN tidak valid. Coba dekatkan / luruskan dan pindai ulang.`);
@@ -168,7 +175,7 @@ useEffect(() => {
       } catch (e: any) {
         if (!cancelled && !doneRef.current) {
           setError(e?.name === 'NotAllowedError'
-            ? 'Izin kamera ditolak. Aktifkan izin kamera di pengaturan browser.'
+            ? 'Izin kamera ditolak. Aktifkan izin kamera di pengaturan peramban.'
             : `Kamera gagal dibuka: ${e?.message || e}`);
         }
       }
@@ -255,7 +262,7 @@ useEffect(() => {
         await startZxing(video);
       } catch (e: any) {
         setError(e?.name === 'NotAllowedError'
-          ? 'Izin kamera ditolak. Aktifkan izin kamera di pengaturan browser.'
+          ? 'Izin kamera ditolak. Aktifkan izin kamera di pengaturan peramban.'
           : `Kamera gagal dibuka: ${e?.message || e}`);
       }
     }
@@ -265,7 +272,7 @@ useEffect(() => {
       cancelled = true;
       stopStream();
     };
-  }, [active, handleDecoded, isProcessing, torchOn]);
+  }, [active, handleDecoded, isProcessing, torchOn, cameraRetryKey]);
 
   async function toggleTorch() {
     const video = videoRef.current;
@@ -275,7 +282,7 @@ useEffect(() => {
         const next = !torchOn;
         await track.applyConstraints({ advanced: [{ torch: next } as any] } as any);
         setTorchOn(next);
-        setHint(next ? 'Flashlight aktif' : 'Flashlight dimatikan');
+        setHint(next ? 'Senter aktif' : 'Senter dimatikan');
         return;
       }
       setHint('Senter tidak didukung perangkat ini');
@@ -346,65 +353,167 @@ useEffect(() => {
     }
   };
 
+  const retryCamera = () => {
+    setError('');
+    resetScanState();
+    setCameraRetryKey((prev) => prev + 1);
+  };
+
   return (
-    <div className="flex flex-col gap-4 rounded-[20px] bg-[#F5F5F7] p-3.5 sm:p-5">
-      <div className="relative overflow-hidden rounded-[18px] bg-[#111214] aspect-[4/3]">
-        <video ref={videoRef} className="h-full w-full object-cover" playsInline muted />
-
-        {error && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#111214]/90 p-6 text-center text-white">
-            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-[16px] bg-white/10 text-[#C83E25]">
-              <Camera className="h-6 w-6" strokeWidth={1.5} aria-hidden="true" />
-            </div>
-            <p className="text-[15px] font-semibold">Kamera tidak bisa dibuka</p>
-            <p className="mt-1 max-w-xs text-[12px] sm:text-[13px] font-medium leading-[1.5] text-white/75">
-              Aktifkan izin kamera di browser, atau gunakan tombol Dari foto dan input ISBN di bawah.
-            </p>
-          </div>
-        )}
-
-        <div className="pointer-events-none absolute inset-5">
-          <span className="absolute left-0 top-0 h-5 w-5 rounded-tl-lg border-l-2 border-t-2 border-white/75" />
-          <span className="absolute right-0 top-0 h-5 w-5 rounded-tr-lg border-r-2 border-t-2 border-white/75" />
-          <span className="absolute bottom-0 left-0 h-5 w-5 rounded-bl-lg border-b-2 border-l-2 border-white/75" />
-          <span className="absolute bottom-0 right-0 h-5 w-5 rounded-br-lg border-b-2 border-r-2 border-white/75" />
-        </div>
-
-        <div className="pointer-events-none absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-black/65 px-3 py-1 text-[12px] font-medium text-white">
-          <span className={`h-1.5 w-1.5 rounded-full ${error ? 'bg-[#C83E25]' : 'bg-emerald-400'}`} />
-          <span>{error ? 'Kamera tidak aktif' : 'Kamera aktif'}</span>
-        </div>
-
-        {!error && (
-          <div className="pointer-events-none absolute inset-x-8 top-1/2 h-0.5 -translate-y-1/2 rounded-full bg-[#C83E25]/90" />
-        )}
-      </div>
+    <div className="flex flex-col gap-3.5 rounded-[18px] bg-white shadow-[0_1px_3px_rgba(38,41,37,0.04)] p-3.5 sm:p-5">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => {
+          void onPickImage(e.target.files?.[0]);
+          e.target.value = '';
+        }}
+      />
 
       {error ? (
-        <div className="flex items-start gap-2.5 rounded-[14px] bg-[#FFF1EE] px-4 py-3 text-[13px] font-medium text-[#111214]">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-[#C83E25]" strokeWidth={1.5} aria-hidden="true" />
-          <span className="leading-[1.5]">{error}</span>
-        </div>
+        <>
+          <video ref={videoRef} className="hidden" playsInline muted />
+          <div className="rounded-[14px] bg-[#262925] p-5 sm:p-6 text-white">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] bg-white/10 text-[#F7EAE4]">
+                <Camera className="h-5 w-5" strokeWidth={1.5} aria-hidden="true" />
+              </div>
+              <div className="min-w-0 flex-1 space-y-1">
+                <p className="text-[15px] font-semibold">Kamera tidak aktif</p>
+                <p className="text-[13px] leading-[1.5] text-white/80">
+                  {error} Gunakan foto sampul belakang atau ketik <span className="acronym">ISBN</span> manual di bawah.
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={retryCamera}
+                className="inline-flex min-h-[42px] items-center gap-1.5 rounded-[12px] bg-white px-3.5 py-2 text-[13px] font-semibold text-[#262925] hover:bg-[#ECE8DF]"
+              >
+                <RotateCcw className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+                <span>Coba buka kamera</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="btn-primary-tactile inline-flex min-h-[42px] items-center gap-1.5 rounded-[12px] px-4 py-2 text-[13px] font-semibold"
+              >
+                <ImagePlus className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+                <span>Pindai dari foto</span>
+              </button>
+              {onClose && (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="inline-flex min-h-[42px] items-center gap-1.5 rounded-[12px] bg-white/10 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-white/20"
+                >
+                  <X className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+                  <span>Tutup</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </>
       ) : (
-        <div className="flex items-center gap-2 rounded-[14px] bg-white px-4 py-3 text-[13px] font-medium text-[#2C2F36]">
-          <Camera className="h-4 w-4 shrink-0 text-[#18362F]" strokeWidth={1.5} aria-hidden="true" />
-          <span>{hint}</span>
+        <>
+          <div className="relative overflow-hidden rounded-[14px] bg-[#262925] aspect-[4/3] sm:aspect-[16/10]">
+            <video ref={videoRef} className="h-full w-full object-cover" playsInline muted />
+
+            <div className="pointer-events-none absolute inset-5">
+              <span className="absolute left-0 top-0 h-5 w-5 rounded-tl-lg border-l-2 border-t-2 border-white/80" />
+              <span className="absolute right-0 top-0 h-5 w-5 rounded-tr-lg border-r-2 border-t-2 border-white/80" />
+              <span className="absolute bottom-0 left-0 h-5 w-5 rounded-bl-lg border-b-2 border-l-2 border-white/80" />
+              <span className="absolute bottom-0 right-0 h-5 w-5 rounded-br-lg border-b-2 border-r-2 border-white/80" />
+            </div>
+
+            <div className="pointer-events-none absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full bg-black/65 px-3 py-1 text-[12px] font-medium text-white">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              <span>Kamera aktif</span>
+            </div>
+
+            <div className="pointer-events-none absolute inset-x-8 top-1/2 h-0.5 -translate-y-1/2 rounded-full bg-[#B9543A]/90" />
+          </div>
+
+          <div className="flex items-center gap-2 border-t border-[#ECE7DD] pt-3 text-[13px] font-medium text-[#262925]">
+            <Camera className="h-4 w-4 shrink-0 text-[#1F6F5B]" strokeWidth={1.5} aria-hidden="true" />
+            <span>{hint}</span>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={toggleTorch}
+              className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-[12px] px-4 py-2 text-[13px] font-semibold transition-colors ${
+                torchOn
+                  ? 'bg-[#B9543A] text-white'
+                  : 'bg-[#F2EFE8] text-[#262925] hover:bg-[#E7E2D7]'
+              }`}
+            >
+              <Flashlight className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+              <span>{torchOn ? 'Matikan senter' : 'Senter'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                resetScanState();
+                onResetScan?.();
+              }}
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[12px] bg-[#F2EFE8] px-4 py-2 text-[13px] font-semibold text-[#262925] hover:bg-[#E7E2D7]"
+            >
+              <RotateCcw className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+              <span>Ulangi</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[12px] bg-[#F2EFE8] px-4 py-2 text-[13px] font-semibold text-[#262925] hover:bg-[#E7E2D7]"
+            >
+              <ImagePlus className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+              <span>Dari foto</span>
+            </button>
+
+            {onClose && (
+              <button
+                type="button"
+                onClick={onClose}
+                className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[12px] bg-[#F2EFE8] px-4 py-2 text-[13px] font-semibold text-[#262925] hover:bg-[#E7E2D7]"
+              >
+                <X className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
+                <span>Tutup</span>
+              </button>
+            )}
+          </div>
+        </>
+      )}
+
+      {error && (
+        <div className="flex items-start gap-2.5 rounded-[12px] bg-[#F7EAE4] px-3.5 py-2.5 text-[12px] font-medium text-[#9E4028]">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-[#B9543A]" strokeWidth={1.5} aria-hidden="true" />
+          <span className="leading-[1.5]">
+            Tips: di Chrome/Edge, klik ikon gembok di bilah alamat untuk mengizinkan akses kamera.
+          </span>
         </div>
       )}
 
       {rawValue && (
-        <div className="rounded-[16px] bg-white p-3.5 text-xs">
-          <div className="flex items-center justify-between gap-2 text-[12px] font-medium text-[#555961]">
+        <div className="border-t border-[#ECE7DD] pt-3 text-xs">
+          <div className="flex items-center justify-between gap-2 text-[11px] font-medium text-[#686C65]">
             <span>Terakhir dibaca</span>
-            <span>{detectedFormat || 'UNKNOWN'}</span>
+            {detectedFormat && <span>{detectedFormat}</span>}
           </div>
-          <div className="mt-1 break-all font-mono text-[13px] text-[#111214]">{rawValue}</div>
+          <div className="mt-1 break-all font-mono text-[13px] text-[#262925]">{rawValue}</div>
         </div>
       )}
 
       {scanChoices.length > 0 && (
-        <div className="rounded-[16px] bg-white p-3.5 text-xs">
-          <div className="mb-2 text-[12px] font-semibold text-[#555961]">
+        <div className="border-t border-[#ECE7DD] pt-3 text-xs">
+          <div className="mb-2 text-[12px] font-semibold text-[#686C65]">
             Pilih kode dari foto
           </div>
           <div className="space-y-2">
@@ -413,7 +522,7 @@ useEffect(() => {
                 key={`${choice.rawValue}-${index}`}
                 type="button"
                 onClick={() => chooseImageResult(choice)}
-                className="w-full rounded-[14px] bg-[#F5F5F7] px-3.5 py-2.5 text-left font-mono text-[12px] text-[#111214] hover:bg-[#EAEAEF]"
+                className="w-full rounded-[12px] bg-[#F2EFE8] px-3.5 py-2.5 text-left font-mono text-[12px] text-[#262925] hover:bg-[#E7E2D7]"
               >
                 {choice.format} · {choice.rawValue}
               </button>
@@ -421,74 +530,6 @@ useEffect(() => {
           </div>
         </div>
       )}
-
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={toggleTorch}
-          className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-[14px] px-4 py-2 text-[13px] font-semibold ${
-            torchOn
-              ? 'bg-[#C83E25] text-white'
-              : 'bg-white text-[#111214] hover:bg-[#EAEAEF]'
-          }`}
-        >
-          <Flashlight className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
-          <span>{torchOn ? 'Matikan senter' : 'Senter'}</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={resetScanState}
-          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[14px] bg-white px-4 py-2 text-[13px] font-semibold text-[#111214] hover:bg-[#EAEAEF]"
-        >
-          <RotateCcw className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
-          <span>Ulangi</span>
-        </button>
-
-        <label className="inline-flex min-h-[44px] cursor-pointer items-center gap-1.5 rounded-[14px] bg-white px-4 py-2 text-[13px] font-semibold text-[#111214] hover:bg-[#EAEAEF]">
-          <ImagePlus className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
-          <span>Dari foto</span>
-          <input
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={(e) => onPickImage(e.target.files?.[0])}
-          />
-        </label>
-
-        {onClose && (
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[14px] bg-white px-4 py-2 text-[13px] font-semibold text-[#555961] hover:bg-[#EAEAEF]"
-          >
-            <X className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
-            <span>Tutup</span>
-          </button>
-        )}
-      </div>
-
-      <div className="flex gap-2 pt-1">
-        <input
-          value={manual}
-          onChange={(e) => setManual(e.target.value)}
-          placeholder="Ketik ISBN atau kode manual"
-          className="min-h-[48px] flex-1 rounded-full bg-white px-4 py-2 text-[15px] text-[#111214] placeholder-[#555961]"
-          inputMode="text"
-        />
-        <button
-          type="button"
-          className="inline-flex min-h-[48px] items-center gap-1.5 rounded-full bg-[#18362F] px-5 py-2 text-sm font-semibold text-white hover:bg-[#112822]"
-          onClick={() => {
-            resetScanState();
-            if (emitRef.current) emitRef.current(manual);
-          }}
-        >
-          <Search className="h-4 w-4" strokeWidth={1.5} aria-hidden="true" />
-          <span>Cari</span>
-        </button>
-      </div>
     </div>
   );
 }

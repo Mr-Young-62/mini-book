@@ -2,6 +2,7 @@ import type { UserRole } from '../types/library';
 
 const roleAliases: Record<string, UserRole> = {
   owner: 'Owner',
+  pemilik: 'Owner',
   'super admin': 'Owner',
   administrator: 'Administrator',
   'admin perpustakaan': 'Administrator',
@@ -17,7 +18,7 @@ export function normalizeUserRole(role: unknown): UserRole | null {
 }
 
 export const roleLabel: Record<UserRole, string> = {
-  Owner: 'Super Admin / Owner',
+  Owner: 'Pemilik',
   Administrator: 'Admin Perpustakaan',
   Librarian: 'Petugas',
   Member: 'Anggota',

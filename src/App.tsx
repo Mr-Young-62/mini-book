@@ -1,9 +1,11 @@
-import React, { useEffect, useState, Suspense } from 'react';
+import React, { useCallback, useEffect, useRef, useState, Suspense } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { MainLayout } from './layouts/MainLayout';
-import { Book, UserRole } from './types/library';
+import { Book, LoanRecord, UserRole } from './types/library';
 import { getErrorMessage } from './lib/errorMessage';
+import { getLoanStatus, toLocalDateString } from './lib/loans';
 import { normalizeUserRole } from './lib/userRole';
+import { ToastProvider, useToast } from './components/ToastProvider';
 import { UpdateNotifications } from './components/UpdateNotifications';
 import { UpdateBanner } from './components/updater/UpdateBanner';
 import { UpdateDialog } from './components/updater/UpdateDialog';
@@ -11,6 +13,7 @@ import { DesktopUpdateBanner } from './components/updater/DesktopUpdateBanner';
 import { useAppUpdater } from './hooks/useAppUpdater';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
 import { LibraryService } from './services/libraryService';
+import { LoanService } from './services/loanService';
 import { unsubscribeFromPush } from './services/pushService';
 
 // Lazy-loaded page components to reduce initial bundle size
@@ -30,8 +33,20 @@ const allowedTabs: Record<UserRole, string[]> = {
 };
 
 export default function App() {
+  return (
+    <ToastProvider>
+      <AppContent />
+    </ToastProvider>
+  );
+}
+
+function AppContent() {
+  const { notify } = useToast();
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
   const [preselectedLoanBook, setPreselectedLoanBook] = useState<Book | null>(null);
+  const [loanInitialFilter, setLoanInitialFilter] = useState<'all' | 'overdue'>('all');
+  const [overdueCount, setOverdueCount] = useState(0);
+  const overdueToastShownRef = useRef(false);
   const handleStartLoanForBook = (book: Book) => {
     setPreselectedLoanBook(book);
     setCurrentTab('loans');
@@ -43,7 +58,6 @@ export default function App() {
   const [roleLoading, setRoleLoading] = useState(isSupabaseConfigured);
   const [cloudRole, setCloudRole] = useState<UserRole | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
-  const [authNotice, setAuthNotice] = useState<string | null>(null);
   const [accessRequestBusy, setAccessRequestBusy] = useState(false);
   const [accessRequestNotice, setAccessRequestNotice] = useState<string | null>(null);
   const [accessRequestError, setAccessRequestError] = useState<string | null>(null);
@@ -135,8 +149,16 @@ export default function App() {
       if (!active) return;
       setSession(nextSession);
       setAuthError(null);
-      if (event === 'SIGNED_IN') setAuthNotice('Login berhasil.');
-      if (event === 'SIGNED_OUT') setAuthNotice(null);
+      if (event === 'SIGNED_IN') {
+        notify({
+          tone: 'success',
+          title: 'Login berhasil',
+          description: 'Selamat datang kembali di perpustakaan.',
+        });
+      }
+      if (event === 'SIGNED_OUT') {
+        overdueToastShownRef.current = false;
+      }
     });
 
     client.auth.getSession().then(({ data, error }) => {
@@ -160,11 +182,50 @@ export default function App() {
     };
   }, [appRefreshKey]);
 
+  const handleLoansChanged = useCallback((rows: LoanRecord[]) => {
+    const today = toLocalDateString();
+    const count = rows.filter((loan) => getLoanStatus(loan, today) === 'overdue').length;
+    setOverdueCount(count);
+  }, []);
+
   useEffect(() => {
-    if (!authNotice) return;
-    const timeout = window.setTimeout(() => setAuthNotice(null), 5000);
-    return () => window.clearTimeout(timeout);
-  }, [authNotice]);
+    const isReady = !isSupabaseConfigured || Boolean(session && cloudRole);
+    if (!isReady) {
+      setOverdueCount(0);
+      return;
+    }
+
+    let cancelled = false;
+    LoanService.getLoans()
+      .then(({ loans }) => {
+        if (cancelled) return;
+        const today = toLocalDateString();
+        const overdueLoans = loans.filter((loan) => getLoanStatus(loan, today) === 'overdue');
+        setOverdueCount(overdueLoans.length);
+        if (overdueLoans.length > 0 && !overdueToastShownRef.current) {
+          overdueToastShownRef.current = true;
+          const first = overdueLoans[0];
+          notify({
+            tone: 'warning',
+            title: `${overdueLoans.length} pinjaman melewati tenggat`,
+            description: `“${first.item_name}” (${first.borrower_name}) belum dikembalikan.`,
+            actionLabel: 'Periksa pinjaman',
+            onAction: () => {
+              setLoanInitialFilter('overdue');
+              setCurrentTab('loans');
+            },
+            durationMs: 9000,
+          });
+        }
+      })
+      .catch(() => {
+        /* ignore background overdue check errors; pages surface errors on direct view */
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session, cloudRole, notify]);
 
   useEffect(() => {
     if (!isSupabaseConfigured || !session) {
@@ -255,7 +316,7 @@ export default function App() {
         <>
           <UpdateNotifications onUpdateSignal={updater.notifyFromPush} />
           {updaterUi}
-          <div className="min-h-screen flex items-center justify-center text-sm text-[#7E6F64]">Connecting to library...</div>
+          <div className="min-h-screen flex items-center justify-center text-sm text-[#686C65]">Menghubungkan ke perpustakaan...</div>
         </>
       );
     }
@@ -264,7 +325,7 @@ export default function App() {
         <>
           <UpdateNotifications onUpdateSignal={updater.notifyFromPush} />
           {updaterUi}
-          <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-sm text-[#7E6F64]">Loading...</div>}>
+          <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-sm text-[#686C65]">Memuat...</div>}>
             <Auth supabase={null} message={authError} />
           </Suspense>
         </>
@@ -275,7 +336,7 @@ export default function App() {
         <>
           <UpdateNotifications onUpdateSignal={updater.notifyFromPush} />
           {updaterUi}
-          <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-sm text-[#7E6F64]">Loading...</div>}>
+          <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-sm text-[#686C65]">Memuat...</div>}>
             <Auth
               supabase={supabase}
               message={authError}
@@ -301,23 +362,16 @@ export default function App() {
     <>
       <UpdateNotifications onUpdateSignal={updater.notifyFromPush} />
       {updaterUi}
-      {authNotice && (
-        <div
-          role="status"
-          className="fixed right-4 top-4 z-[100] rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-900 shadow-lg"
-        >
-          {authNotice}
-        </div>
-      )}
       <MainLayout
         key={appRefreshKey}
         currentTab={activeTab}
         onSelectTab={setCurrentTab}
         userRole={activeRole}
         cloudMode={isSupabaseConfigured}
+        overdueCount={overdueCount}
         onSignOut={isSupabaseConfigured ? handleSignOut : undefined}
       >
-        <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-sm text-[#7E6F64]">Loading...</div>}>
+        <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-sm text-[#686C65]">Memuat...</div>}>
           {activeTab === 'dashboard' && (
             <Dashboard
               userRole={activeRole}
@@ -337,6 +391,9 @@ export default function App() {
             <Loans
               initialBook={preselectedLoanBook}
               onClearInitialBook={() => setPreselectedLoanBook(null)}
+              initialFilterTab={loanInitialFilter}
+              onClearInitialFilter={() => setLoanInitialFilter('all')}
+              onLoansChanged={handleLoansChanged}
             />
           )}
 

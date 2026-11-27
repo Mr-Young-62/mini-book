@@ -4,6 +4,7 @@ import { normalizeUserRole, roleLabel } from './userRole';
 describe('normalizeUserRole', () => {
   it.each([
     ['Owner', 'Owner'],
+    ['Pemilik', 'Owner'],
     ['Super Admin', 'Owner'],
     ['Administrator', 'Administrator'],
     ['Admin Perpustakaan', 'Administrator'],
@@ -23,7 +24,7 @@ describe('normalizeUserRole', () => {
 
   it('uses localized labels for each canonical role', () => {
     expect(roleLabel).toEqual({
-      Owner: 'Super Admin / Owner',
+      Owner: 'Pemilik',
       Administrator: 'Admin Perpustakaan',
       Librarian: 'Petugas',
       Member: 'Anggota',

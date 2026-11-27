@@ -4,33 +4,48 @@
   :root {
     --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, sans-serif;
     --font-mono: 'JetBrains Mono', monospace;
-    /* Serif dipakai hanya untuk judul buku sebagai teks (katalog, kartu, modal detail, daftar pinjaman) */
-    --font-book: 'Literata', Georgia, 'Times New Roman', serif;
+    /* Tipografi UI bersih ala SF Pro untuk seluruh antarmuka dan judul buku */
+    --font-book: var(--font-sans);
 
-    --bg-canvas: #faf8f3;
-    --bg-sidebar: #f4f0e8;
-    --bg-surface: #f1ede4;
-    --bg-surface-hover: #e7e1d5;
-    --bg-stone: #ebe5d8;
+    --bg-canvas: #f5f3ee;
+    --bg-sidebar: #efece6;
+    --bg-surface: #ece8df;
+    --bg-surface-hover: #e3ded2;
+    --bg-stone: #e8e3d9;
     --bg-card: #ffffff;
+    --border-card: rgba(38, 41, 37, 0.06);
+    --border-separator: rgba(38, 41, 37, 0.06);
+    --border-control: #dcd6c9;
+    --border-control-hover: #c5beaf;
     --bg-secondary-btn: rgba(38, 41, 37, 0.06);
     --bg-secondary-btn-hover: rgba(38, 41, 37, 0.11);
 
     --text-main: #262925;
     --text-body: #363a34;
-    --text-muted: #575b54;
-    --text-light: #575b54;
+    --text-muted: #686c65;
+    --text-subtle: #737770;
+    --text-light: #686c65;
 
-    --accent-pine: #24483d;
-    --accent-pine-hover: #19382f;
-    --accent-pine-soft: #e8efeb;
+    --accent-pine: #1f6f5b;
+    --accent-pine-hover: #185949;
+    --accent-pine-lip: #134a3c;
+    --accent-pine-soft: #e5f2ee;
+    --accent-pine-text: #165243;
+    --accent-marigold: #f1ae2c;
+    --accent-marigold-hover: #e39b16;
+    --accent-marigold-lip: #c27b0e;
+    --accent-marigold-soft: #f7edd6;
+    --accent-ochre-text: #7a510b;
+    --accent-mulberry: #784499;
+    --accent-mulberry-soft: #f2ebf6;
+    --accent-mulberry-text: #5f327a;
     --accent-coral: #b9543a;
     --accent-coral-hover: #9e4028;
     --accent-coral-soft: #f7eae4;
     --accent-danger: #b3261e;
     --accent-danger-soft: #fdecec;
 
-    /* Apple HIG 8pt spacing, concentric tiered radii, and pill CTA tokens */
+    /* Smooth iOS 8pt spacing, grouped inset radii (18px), and smooth control radii (12px) */
     --space-screen: 16px;
     --space-card: 16px;
     --space-card-tight: 12px;
@@ -38,9 +53,9 @@
     --gap-element: 8px;
     --gap-component: 12px;
     --gap-section: 24px;
-    --radius-card: 16px;
-    --radius-nested: 10px;
-    --radius-control: 10px;
+    --radius-card: 18px;
+    --radius-nested: 12px;
+    --radius-control: 12px;
     --radius-pill: 9999px;
     --btn-height-primary: 50px;
   }
@@ -119,6 +134,63 @@
   }
 }
 
+/* Tactile CTA hierarchy: Botanical Green for primary actions, Bookmark Marigold for hero spotlight */
+.btn-primary-tactile {
+  background: var(--accent-pine);
+  color: #ffffff;
+  box-shadow: 0 2px 0 var(--accent-pine-lip), 0 4px 10px rgba(31, 111, 91, 0.16);
+  transition:
+    transform 0.14s cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 0.16s ease,
+    box-shadow 0.14s ease;
+}
+
+.btn-primary-tactile:hover:not(:disabled) {
+  background: var(--accent-pine-hover);
+  box-shadow: 0 2px 0 var(--accent-pine-lip), 0 6px 14px rgba(31, 111, 91, 0.22);
+}
+
+.btn-primary-tactile:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: 0 1px 0 var(--accent-pine-lip), 0 2px 4px rgba(31, 111, 91, 0.14);
+}
+
+.btn-primary-tactile:disabled {
+  box-shadow: none;
+}
+
+.btn-hero-marigold {
+  background: var(--accent-marigold);
+  color: var(--text-main);
+  box-shadow:
+    inset 0 0 0 1px rgba(194, 123, 14, 0.45),
+    0 3px 0 var(--accent-marigold-lip),
+    0 6px 14px rgba(194, 123, 14, 0.22);
+  transition:
+    transform 0.14s cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 0.16s ease,
+    box-shadow 0.14s ease;
+}
+
+.btn-hero-marigold:hover:not(:disabled) {
+  background: var(--accent-marigold-hover);
+  box-shadow:
+    inset 0 0 0 1px rgba(194, 123, 14, 0.55),
+    0 3px 0 var(--accent-marigold-lip),
+    0 8px 16px rgba(194, 123, 14, 0.26);
+}
+
+.btn-hero-marigold:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow:
+    inset 0 0 0 1px rgba(194, 123, 14, 0.55),
+    0 1px 0 var(--accent-marigold-lip);
+}
+
+.btn-hero-marigold:disabled {
+  box-shadow: none;
+}
+
 @keyframes tabFadeIn {
   from {
     opacity: 0;
@@ -132,6 +204,21 @@
   animation: tabFadeIn 0.16s ease-out;
 }
 
+@keyframes toastSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.toast-enter {
+  animation: toastSlideIn 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 .no-scrollbar {
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -141,14 +228,43 @@
   display: none;
 }
 
-/* Typography tokens: book titles (serif) vs. author/metadata (sans) */
+/* Typography tokens: fluid page titles, anti-shift bold reservation, small-caps acronyms, and book titles */
+.page-title {
+  font-size: clamp(1.375rem, 1.05rem + 1.4vw, 1.875rem);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.022em;
+  color: var(--text-main);
+}
+
+.reserve-bold {
+  display: inline-flex;
+  flex-direction: column;
+}
+
+.reserve-bold::after {
+  content: attr(data-label);
+  content: attr(data-label) / "";
+  height: 0;
+  visibility: hidden;
+  overflow: hidden;
+  user-select: none;
+  pointer-events: none;
+  font-weight: 700;
+}
+
+.acronym {
+  font-variant-caps: all-small-caps;
+  letter-spacing: 0.045em;
+}
+
 .font-book {
   font-family: var(--font-book);
 }
 
 .book-title {
   font-family: var(--font-book);
-  font-size: 14px;
+  font-size: 13.5px;
   line-height: 1.35;
   font-weight: 600;
   letter-spacing: -0.005em;
@@ -166,7 +282,7 @@
 
 .book-title-lg {
   font-family: var(--font-book);
-  font-size: 18px;
+  font-size: 17px;
   line-height: 1.3;
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -174,7 +290,7 @@
 }
 
 .book-author {
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.4;
   font-weight: 400;
   color: var(--text-muted);
@@ -183,6 +299,14 @@
 @media (min-width: 640px) {
   .book-title {
     font-size: 15px;
+  }
+
+  .book-title-lg {
+    font-size: 18px;
+  }
+
+  .book-author {
+    font-size: 13px;
   }
 }
 
@@ -205,7 +329,7 @@
   height: 100vh;
   height: 100dvh;
   background: var(--bg-sidebar);
-  border-right: 0;
+  border-right: 1px solid rgba(38, 41, 37, 0.05);
   padding: 20px 12px;
   display: flex;
   flex-direction: column;
@@ -251,7 +375,7 @@
 .brand-mark {
   width: 34px;
   height: 34px;
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--accent-pine);
   color: #ffffff;
   display: inline-flex;
@@ -283,10 +407,11 @@
 .sidebar-collapse-btn {
   width: 30px;
   height: 30px;
-  border-radius: 10px;
+  border-radius: 12px;
   border: 0;
-  background: var(--bg-secondary-btn);
-  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 1px 2px rgba(38, 41, 37, 0.05);
+  color: var(--text-body);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -294,7 +419,7 @@
 }
 
 .sidebar-collapse-btn:hover {
-  background: var(--bg-secondary-btn-hover);
+  background: #ffffff;
   color: var(--text-main);
 }
 
@@ -344,7 +469,7 @@
 .nav-item-icon {
   width: 28px;
   height: 28px;
-  border-radius: 8px;
+  border-radius: 9px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -364,7 +489,7 @@
 
 .nav-item.active {
   background: var(--accent-pine-soft);
-  color: var(--accent-pine);
+  color: var(--accent-pine-text);
   font-weight: 700;
 }
 
@@ -430,7 +555,7 @@
   min-height: 44px;
   border: 0;
   padding: 0 18px;
-  border-radius: 9999px;
+  border-radius: var(--radius-control);
   background: var(--accent-pine);
   color: #ffffff;
   font-size: 0.85rem;
@@ -448,13 +573,14 @@
 }
 
 .sign-out-btn {
-  background: var(--bg-secondary-btn);
+  background: #ffffff;
   color: var(--text-main);
   border: 0;
+  box-shadow: 0 1px 2px rgba(38, 41, 37, 0.06);
 }
 
 .sign-out-btn:hover {
-  background: var(--bg-secondary-btn-hover);
+  background: var(--bg-surface);
   color: var(--text-main);
 }
 
@@ -487,13 +613,23 @@
     display: inline-flex;
   }
 
+  .mobile-brand .brand-mark {
+    width: 30px;
+    height: 30px;
+    border-radius: 10px;
+  }
+
+  .mobile-brand .brand-text {
+    font-size: 0.84rem;
+  }
+
   .main-header {
-    padding: 8px var(--space-screen);
+    padding: 10px 20px;
     min-height: 52px;
   }
 
   .content-shell {
-    padding: 10px var(--space-screen) calc(104px + env(safe-area-inset-bottom, 0px));
+    padding: 14px 20px calc(108px + env(safe-area-inset-bottom, 0px));
   }
 
   .mobile-bottom-nav {
@@ -505,7 +641,7 @@
     bottom: calc(10px + env(safe-area-inset-bottom, 0px));
     z-index: 45;
     display: block;
-    background: rgba(250, 248, 243, 0.86);
+    background: rgba(245, 243, 238, 0.88);
     backdrop-filter: saturate(180%) blur(22px);
     -webkit-backdrop-filter: saturate(180%) blur(22px);
     border: 0;
@@ -605,7 +741,7 @@
   }
 
   .mobile-bottom-tab.is-center {
-    color: var(--accent-pine);
+    color: var(--text-main);
     padding: 4px;
   }
 
@@ -621,9 +757,12 @@
     width: 44px;
     height: 44px;
     border-radius: 9999px;
-    background: var(--accent-pine);
-    color: #ffffff;
-    box-shadow: 0 4px 12px rgba(36, 72, 61, 0.2);
+    background: var(--accent-marigold);
+    color: var(--text-main);
+    box-shadow:
+      inset 0 0 0 1px rgba(194, 123, 14, 0.45),
+      0 3px 0 var(--accent-marigold-lip),
+      0 6px 14px rgba(194, 123, 14, 0.24);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -631,12 +770,15 @@
   }
 
   .mobile-bottom-tab.is-center.active .mobile-scan-badge {
-    background: var(--accent-pine-hover);
-    box-shadow: 0 0 0 3px var(--accent-pine-soft), 0 0 0 4.5px var(--accent-pine);
+    background: var(--accent-marigold-hover);
+    box-shadow: 0 0 0 3px var(--accent-marigold-soft), 0 0 0 4.5px var(--accent-marigold-lip);
   }
 
   .mobile-bottom-tab.is-center:active .mobile-scan-badge {
-    transform: scale(0.94);
+    transform: translateY(1.5px);
+    box-shadow:
+      inset 0 0 0 1px rgba(194, 123, 14, 0.55),
+      0 1px 0 var(--accent-marigold-lip);
   }
 
   .mobile-bottom-label {
@@ -652,9 +794,9 @@
 
 @media (max-width: 480px) {
   .scan-button {
-    min-height: 40px;
-    padding: 0 14px;
-    font-size: 0.8rem;
+    min-height: 38px;
+    padding: 0 12px;
+    font-size: 0.78rem;
   }
 }
 

@@ -32,6 +32,39 @@ describe('ISBN normalization', () => {
   });
 });
 
+describe('ISBN-13 to ISBN-10 conversion', () => {
+  it('recomputes a checksum-valid ISBN-10 that round-trips back', () => {
+    const isbn10 = isbn13To10('9780306406157');
+
+    expect(isbn10).toBe('0306406152');
+    expect(isValidIsbn10(isbn10!)).toBe(true);
+    expect(isbn10To13(isbn10!)).toBe('9780306406157');
+
+    const another = isbn13To10('9780140449136');
+    expect(another).toBe('0140449132');
+    expect(isValidIsbn10(another!)).toBe(true);
+    expect(isbn10To13(another!)).toBe('9780140449136');
+  });
+
+  it('emits an X check digit when the ISBN-10 remainder is 10', () => {
+    expect(isbn13To10('9780000000064')).toBe('000000006X');
+    expect(isValidIsbn10('000000006X')).toBe(true);
+    expect(isbn10To13('000000006X')).toBe('9780000000064');
+  });
+
+  it('returns no counterpart for 979 books', () => {
+    expect(isbn13To10('9791234567896')).toBeUndefined();
+    expect(isbn13To10('9790000000001')).toBeUndefined();
+  });
+
+  it('returns no counterpart for malformed or checksum-invalid input', () => {
+    expect(isbn13To10('978123')).toBeUndefined();
+    expect(isbn13To10('0306406152')).toBeUndefined();
+    expect(isbn13To10('')).toBeUndefined();
+    expect(isbn13To10('9780306406158')).toBeUndefined();
+  });
+});
+
 describe('ISBN validation', () => {
   it('accepts valid ISBN-10 and ISBN-13 values', () => {
     expect(isValidIsbn10('0306406152')).toBe(true);
