@@ -58,15 +58,24 @@ async function genKey(outKey, outPub) {
   process.stdout.write(`Wrote ${outKey} and ${outPub}\nPublic key (pin in app): ${toBase64Url(buildPublicKey(seed))}\n`);
 }
 
-async function signManifest(inPath, keyPath, outPath) {
+async function signManifest(inPath, keyPath, outPath, expectedPublicKey) {
   const manifest = JSON.parse(await readFile(inPath, 'utf8'));
   const seed = fromBase64Url((await readFile(keyPath, 'utf8')).trim());
   const privateKey = buildPrivateKey(seed);
+  const publicKey = toBase64Url(buildPublicKey(seed));
+  if (expectedPublicKey && expectedPublicKey !== publicKey) {
+    throw new Error(
+      `Signing key does not match the public key pinned in the app.\n` +
+        `  derived : ${publicKey}\n` +
+        `  pinned  : ${expectedPublicKey}\n` +
+        `The app would reject this manifest. Pin the derived key in src/services/updateService.ts or use the matching private key.`,
+    );
+  }
   const data = Buffer.from(canonicalJson(manifest), 'utf8');
   const signature = sign(null, data, privateKey);
   const signed = { ...manifest, signature: toBase64Url(signature) };
   await writeFile(outPath, `${JSON.stringify(signed, null, 2)}\n`, 'utf8');
-  process.stdout.write(`Signed ${inPath} -> ${outPath}\n  versionCode: ${signed.versionCode}\n  signature  : ${signed.signature.slice(0, 16)}...\n`);
+  process.stdout.write(`Signed ${inPath} -> ${outPath}\n  versionCode: ${signed.versionCode}\n  publicKey  : ${publicKey}\n  signature  : ${signed.signature.slice(0, 16)}...\n`);
 }
 
 function parseArgs(argv) {
@@ -91,7 +100,7 @@ async function main() {
       [
         'Usage:',
         '  node scripts/sign-manifest.mjs --gen-key --out-key <path> --out-pub <path>',
-        '  node scripts/sign-manifest.mjs --in <latest.json> --key <private.b64> --out <signed.json>',
+        '  node scripts/sign-manifest.mjs --in <latest.json> --key <private.b64> --out <signed.json> [--expect-pub <base64url>]',
         '',
       ].join('\n'),
     );
@@ -103,7 +112,7 @@ async function main() {
     return;
   }
   if (!args.in || !args.key || !args.out) throw new Error('--in, --key and --out are required to sign.');
-  await signManifest(args.in, args.key, args.out);
+  await signManifest(args.in, args.key, args.out, args['expect-pub']);
 }
 
 try {

@@ -7,10 +7,11 @@ import { getLoanStatus, toLocalDateString } from './lib/loans';
 import { normalizeUserRole } from './lib/userRole';
 import { ToastProvider, useToast } from './components/ToastProvider';
 import { UpdateNotifications } from './components/UpdateNotifications';
+import { Capacitor } from '@capacitor/core';
 import { UpdateBanner } from './components/updater/UpdateBanner';
 import { UpdateDialog } from './components/updater/UpdateDialog';
-import { DesktopUpdateBanner } from './components/updater/DesktopUpdateBanner';
-import { useAppUpdater } from './hooks/useAppUpdater';
+import { DesktopUpdateBanner, DesktopUpdateDialog } from './components/updater/DesktopUpdateBanner';
+import { isTauriPlatform, useAppUpdater } from './hooks/useAppUpdater';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
 import { LibraryService } from './services/libraryService';
 import { LoanService } from './services/loanService';
@@ -61,48 +62,60 @@ function AppContent() {
   const [accessRequestBusy, setAccessRequestBusy] = useState(false);
   const [accessRequestNotice, setAccessRequestNotice] = useState<string | null>(null);
   const [accessRequestError, setAccessRequestError] = useState<string | null>(null);
-  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const updater = useAppUpdater();
-  const updateManifest = updater.status === 'available' && !updater.dismissed ? updater.manifest : null;
-  const handleDismissUpdate = () => {
-    updater.dismiss();
-    setUpdateDialogOpen(false);
-  };
-  const desktopUi = updater.platform === 'desktop' && updater.desktop.available ? (
-    <DesktopUpdateBanner
-      version={updater.desktop.version}
-      notes={updater.desktop.notes}
-      downloading={updater.desktop.downloading}
-      error={updater.desktop.error}
-      onUpdate={() => void updater.startDesktopUpdate()}
-      onDismiss={updater.dismissDesktopUpdate}
-    />
+  const updateManifest = updater.status === 'available' && (!updater.dismissed || updater.dialogOpen) ? updater.manifest : null;
+  const desktopUi = updater.platform === 'desktop' && updater.desktop.available && (!updater.desktop.dismissed || updater.dialogOpen) ? (
+    updater.dialogOpen ? (
+      <DesktopUpdateDialog
+        currentVersion={updater.currentVersion}
+        version={updater.desktop.version}
+        notes={updater.desktop.notes}
+        downloading={updater.desktop.downloading}
+        received={updater.desktop.received}
+        total={updater.desktop.total}
+        error={updater.desktop.error}
+        onUpdate={() => void updater.startDesktopUpdate()}
+        onClose={updater.closeDialog}
+        onDismiss={updater.dismissDesktopUpdate}
+      />
+    ) : (
+      <DesktopUpdateBanner
+        version={updater.desktop.version}
+        notes={updater.desktop.notes}
+        downloading={updater.desktop.downloading}
+        error={updater.desktop.error}
+        onOpen={updater.openDialog}
+        onUpdate={() => void updater.startDesktopUpdate()}
+        onDismiss={updater.dismissDesktopUpdate}
+      />
+    )
   ) : null;
   const updaterUi = updateManifest ? (
     <>
-      {!updateDialogOpen && (
+      {!updater.dialogOpen && (
         <UpdateBanner
           manifest={updateManifest}
           forced={updater.forced}
-          onOpen={() => setUpdateDialogOpen(true)}
-          onDismiss={handleDismissUpdate}
+          onOpen={updater.openDialog}
+          onDismiss={updater.dismiss}
         />
       )}
-      {updateDialogOpen && (
+      {updater.dialogOpen && (
         <UpdateDialog
           manifest={updateManifest}
+          mode={updater.updateMode}
           currentVersion={updater.currentVersion}
           currentVersionCode={updater.currentVersionCode}
           forced={updater.forced}
           download={updater.download}
           installError={updater.installError}
           installPermissionRequired={updater.installPermissionRequired}
-          onStartDownload={updater.startDownload}
-          onCancelDownload={updater.cancelDownload}
+          onStartDownload={(forceApk) => void updater.startDownload(forceApk)}
+          onCancelDownload={() => void updater.cancelDownload()}
           onInstall={updater.installApk}
-          onOpenSettings={updater.openInstallerSettings}
-          onClose={() => setUpdateDialogOpen(false)}
-          onDismiss={handleDismissUpdate}
+          onOpenSettings={() => void updater.openInstallerSettings()}
+          onClose={updater.closeDialog}
+          onDismiss={updater.dismiss}
         />
       )}
     </>
@@ -111,6 +124,7 @@ function AppContent() {
   // Web Push (Tahap G): register the service worker and reload when a push
   // notification says a new version is live (bundle may be stale in memory).
   useEffect(() => {
+    if (Capacitor.isNativePlatform() || isTauriPlatform()) return;
     if (!('serviceWorker' in navigator)) return;
     void navigator.serviceWorker.register('/sw.js').catch(() => {
       /* push unsupported or offline: banner flows still work */

@@ -948,7 +948,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               {updater.platform === 'desktop' &&
                 updater.desktop.available &&
                 updater.desktop.version && (
-                  <div className="rounded-[12px] bg-[#E5F2EE] p-3 space-y-1 text-xs text-[#165243]">
+                  <div className="rounded-[12px] bg-[#E5F2EE] p-3 space-y-2 text-xs text-[#165243]">
                     <div className="font-semibold">
                       Pembaruan v{updater.desktop.version} tersedia
                     </div>
@@ -958,6 +958,15 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                           <div key={`${index}-${line}`}>{line.trim()}</div>
                         ) : null,
                       )}
+                    <div>
+                      <button
+                        type="button"
+                        onClick={updater.openDialog}
+                        className="btn-primary-tactile inline-flex min-h-[36px] items-center gap-1.5 rounded-[10px] px-3.5 text-xs font-semibold"
+                      >
+                        Perbarui sekarang
+                      </button>
+                    </div>
                   </div>
                 )}
               {updater.platform === 'desktop' &&
@@ -978,13 +987,22 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               {updater.platform !== 'desktop' &&
                 updater.status === 'available' &&
                 updater.manifest && (
-                  <div className="rounded-[12px] bg-[#E5F2EE] p-3 space-y-1 text-xs text-[#165243]">
+                  <div className="rounded-[12px] bg-[#E5F2EE] p-3 space-y-2 text-xs text-[#165243]">
                     <div className="font-semibold">
                       Pembaruan v{updater.manifest.version} tersedia
                     </div>
                     {updater.manifest.changelog.map((entry, index) => (
                       <div key={`${index}-${entry}`}>{entry}</div>
                     ))}
+                    <div>
+                      <button
+                        type="button"
+                        onClick={updater.openDialog}
+                        className="btn-primary-tactile inline-flex min-h-[36px] items-center gap-1.5 rounded-[10px] px-3.5 text-xs font-semibold"
+                      >
+                        Perbarui sekarang
+                      </button>
+                    </div>
                   </div>
                 )}
               {updater.platform !== 'desktop' &&
@@ -996,16 +1014,25 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               {updater.platform !== 'desktop' &&
                 updater.status === 'unavailable' && (
                   <p className="text-xs font-medium text-[#9E4028]">
-                    Tidak dapat memeriksa pembaruan. Periksa koneksi internet.
+                    {updater.statusMessage || 'Tidak dapat memeriksa pembaruan. Periksa koneksi internet.'}
                   </p>
                 )}
               {updater.platform !== 'desktop' &&
                 updater.status === 'disabled' && (
-                  <p className="text-xs text-[#737770]">
-                    {updater.platform === 'android'
-                      ? 'Pemeriksaan pembaruan hanya aktif pada build rilis Android.'
-                      : 'Pemeriksaan pembaruan tersedia di build Android dan desktop.'}
-                  </p>
+                  <div className="space-y-1 text-xs text-[#737770]">
+                    <p>
+                      {updater.statusMessage || (updater.platform === 'android'
+                        ? 'Pemeriksaan pembaruan hanya aktif pada build rilis Android.'
+                        : 'Pemeriksaan pembaruan tersedia di build Android dan desktop.')}
+                    </p>
+                    {!updater.config.enabled && (
+                      <p className="font-mono text-[11px] text-[#9E4028]">
+                        {updater.config.manifestUrl
+                          ? `versionCode=${updater.config.currentVersionCode}`
+                          : 'VITE_UPDATE_MANIFEST_URL belum diatur'}
+                      </p>
+                    )}
+                  </div>
                 )}
 
               <button

@@ -21,6 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       gcs: ${{ steps.flags.outputs.gcs }}
+      supabase: ${{ steps.flags.outputs.supabase }}
+      storage: ${{ steps.flags.outputs.storage }}
       signing: ${{ steps.flags.outputs.signing }}
     steps:
       - id: flags
@@ -28,9 +30,24 @@ jobs:
           APK_STORAGE_BUCKET: ${{ secrets.APK_STORAGE_BUCKET }}
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
-          echo "gcs=$([ -n "$APK_STORAGE_BUCKET" ] && [ -n "$FIREBASE_SERVICE_ACCOUNT" ] && [ -n "$FIREBASE_PROJECT_ID" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          gcs=$([ -n "$APK_STORAGE_BUCKET" ] && [ -n "$FIREBASE_SERVICE_ACCOUNT" ] && [ -n "$FIREBASE_PROJECT_ID" ] && echo true || echo false)
+          supabase_base="${SUPABASE_URL:-$VITE_SUPABASE_URL}"
+          supabase=$([ -n "$supabase_base" ] && [ -n "$SUPABASE_SERVICE_ROLE_KEY" ] && echo true || echo false)
+          if [ "$gcs" = "true" ]; then
+            storage="gcs"
+          elif [ "$supabase" = "true" ]; then
+            storage="supabase"
+          else
+            storage="github"
+          fi
+          echo "gcs=$gcs" >> "$GITHUB_OUTPUT"
+          echo "supabase=$supabase" >> "$GITHUB_OUTPUT"
+          echo "storage=$storage" >> "$GITHUB_OUTPUT"
           if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
             echo "::error::TAURI_SIGNING_PRIVATE_KEY is required for signed desktop releases."
             exit 1
@@ -61,13 +78,21 @@ jobs:
         if: needs.preflight.outputs.signing == 'true'
         env:
           APK_STORAGE_BUCKET: ${{ secrets.APK_STORAGE_BUCKET }}
-          GCS: ${{ needs.preflight.outputs.gcs }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          UPDATE_STORAGE_BUCKET: ${{ secrets.UPDATE_STORAGE_BUCKET }}
+          STORAGE: ${{ needs.preflight.outputs.storage }}
         shell: bash
         run: |
-          if [ "$GCS" = "true" ]; then
+          BUCKET="${UPDATE_STORAGE_BUCKET:-app-updates}"
+          SUPABASE_BASE="${SUPABASE_URL:-$VITE_SUPABASE_URL}"
+          SUPABASE_BASE="${SUPABASE_BASE%/}"
+          if [ "$STORAGE" = "gcs" ]; then
             ENDPOINT="https://storage.googleapis.com/${APK_STORAGE_BUCKET}/desktop/latest.json"
+          elif [ "$STORAGE" = "supabase" ]; then
+            ENDPOINT="${SUPABASE_BASE}/storage/v1/object/public/${BUCKET}/desktop/latest.json"
           else
-            ENDPOINT="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/desktop-latest.json"
+            ENDPOINT="https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/desktop-latest.json"
           fi
           node scripts/prepare-desktop-build.mjs --tag "$GITHUB_REF_NAME" --endpoint "$ENDPOINT"
 
@@ -79,6 +104,9 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_AUTH_REDIRECT_URL: ${{ secrets.VITE_AUTH_REDIRECT_URL }}
         run: |
           export VITE_APP_VERSION="${GITHUB_REF_NAME#v}"
           export VITE_APP_VERSION_CODE="$(node scripts/version-utils.mjs "$GITHUB_REF_NAME")"
@@ -96,7 +124,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p upload
-          find src-tauri/target -type f -path '*/bundle/*' -exec cp {} upload/ \;
+          find src-tauri/target -type f -path '*/bundle/*' \( -name '*.exe' -o -name '*.msi' -o -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.nsis.zip' -o -name '*.sig' \) -exec cp {} upload/ \;
           ls -la upload/
           if [ "$SIGNING" = "true" ]; then
             artifacts=0
@@ -138,13 +166,13 @@ jobs:
           path: artifacts
 
       - name: Authenticate to Google Cloud
-        if: needs.preflight.outputs.gcs == 'true'
+        if: needs.preflight.outputs.storage == 'gcs'
         uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
 
       - name: Set up Google Cloud CLI
-        if: needs.preflight.outputs.gcs == 'true'
+        if: needs.preflight.outputs.storage == 'gcs'
         uses: google-github-actions/setup-gcloud@e427ad8a34f8676edf47cf7d7925499adf3eb74f # v2
         with:
           project_id: ${{ secrets.FIREBASE_PROJECT_ID }}
@@ -152,16 +180,25 @@ jobs:
       - name: Upload desktop artifacts and publish updater manifest
         env:
           APK_STORAGE_BUCKET: ${{ secrets.APK_STORAGE_BUCKET }}
-          GCS: ${{ needs.preflight.outputs.gcs }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          UPDATE_STORAGE_BUCKET: ${{ secrets.UPDATE_STORAGE_BUCKET }}
+          STORAGE: ${{ needs.preflight.outputs.storage }}
           SIGNING: ${{ needs.preflight.outputs.signing }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          if [ "$GCS" = "true" ]; then
+          BUCKET="${UPDATE_STORAGE_BUCKET:-app-updates}"
+          SUPABASE_BASE="${SUPABASE_URL:-$VITE_SUPABASE_URL}"
+          SUPABASE_BASE="${SUPABASE_BASE%/}"
+          if [ "$STORAGE" = "gcs" ]; then
             BASE_URL="https://storage.googleapis.com/${APK_STORAGE_BUCKET}/desktop"
+          elif [ "$STORAGE" = "supabase" ]; then
+            BASE_URL="${SUPABASE_BASE}/storage/v1/object/public/${BUCKET}/desktop"
           else
             BASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
           fi
-          if [ "$GCS" = "true" ]; then
+          if [ "$STORAGE" = "gcs" ]; then
             while IFS= read -r file; do
               name="$(basename "$file")"
               gcloud storage cp --cache-control="public,max-age=31536000,immutable" \
@@ -172,8 +209,13 @@ jobs:
               test "$remote_size" = "$local_size" || (echo "Upload verification failed for ${name}: remote=${remote_size} local=${local_size}" && exit 1)
               echo "Verified ${name} (${local_size} bytes)"
             done < <(find artifacts -type f | sort)
+          elif [ "$STORAGE" = "supabase" ]; then
+            while IFS= read -r file; do
+              name="$(basename "$file")"
+              node scripts/upload-supabase-release.mjs --bucket "$BUCKET" --file "$file" --object "desktop/${name}" --cache-control 31536000
+            done < <(find artifacts -type f \( -name '*.exe' -o -name '*.msi' -o -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.nsis.zip' -o -name '*.sig' \) | sort)
           else
-            echo "GCS bucket not configured; desktop artifacts will be attached to the GitHub Release only."
+            echo "Neither GCS nor Supabase Storage configured; desktop artifacts will be attached to the GitHub Release only."
           fi
           mkdir -p release-assets
           find artifacts -type f \( -name '*.exe' -o -name '*.msi' -o -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.nsis.zip' -o -name '*.sig' \) -exec cp {} release-assets/ \;
@@ -183,7 +225,12 @@ jobs:
             find . -maxdepth 1 -type f ! -name 'SHA256SUMS' -printf '%f\n' | sort | xargs sha256sum > SHA256SUMS
           )
           CHANGES_FILE="$(mktemp)"
-          git log --no-merges --pretty='- %s' -n 30 > "$CHANGES_FILE" || true
+          PREV_TAG="$(git tag --list 'v*' --sort=-v:refname | grep -vx "$GITHUB_REF_NAME" | head -n1 || true)"
+          if [ -n "$PREV_TAG" ]; then
+            git log --no-merges --pretty='- %s' "${PREV_TAG}..HEAD" > "$CHANGES_FILE" || true
+          else
+            git log --no-merges --pretty='- %s' -n 30 > "$CHANGES_FILE" || true
+          fi
           if [ "$SIGNING" = "true" ]; then
             node scripts/generate-desktop-manifest.mjs \
               --version "$VERSION" \
@@ -193,11 +240,13 @@ jobs:
               --out desktop-latest.json
             cat desktop-latest.json
             cp desktop-latest.json release-assets/desktop-latest.json
-            if [ "$GCS" = "true" ]; then
+            if [ "$STORAGE" = "gcs" ]; then
               gcloud storage cp --cache-control="public,max-age=60,must-revalidate" \
                 desktop-latest.json \
                 "gs://${APK_STORAGE_BUCKET}/desktop/latest.json"
               echo "Published ${BASE_URL}/latest.json"
+            elif [ "$STORAGE" = "supabase" ]; then
+              node scripts/upload-supabase-release.mjs --bucket "$BUCKET" --file desktop-latest.json --object desktop/latest.json --cache-control 60
             fi
           else
             echo "Tauri signing key not configured; desktop updater manifest will not be published."

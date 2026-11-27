@@ -1,18 +1,20 @@
 import React from 'react';
-import { Download, X } from 'lucide-react';
+import { Download, RefreshCw, X } from 'lucide-react';
 import type { DownloadState } from '../../hooks/useAppUpdater';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { openDownloadUrl, type UpdateManifest } from '../../services/updateService';
+import type { AndroidUpdateMode } from '../../types/updater';
 
 interface UpdateDialogProps {
   manifest: UpdateManifest;
+  mode: AndroidUpdateMode;
   currentVersion: string;
   currentVersionCode: number;
   forced: boolean;
   download: DownloadState;
   installError: string | null;
   installPermissionRequired: boolean;
-  onStartDownload: () => void;
+  onStartDownload: (forceApk?: boolean) => void;
   onCancelDownload: () => void;
   onInstall: () => Promise<void>;
   onOpenSettings: () => void;
@@ -26,6 +28,7 @@ function formatBytes(value: number): string {
 
 export const UpdateDialog: React.FC<UpdateDialogProps> = ({
   manifest,
+  mode,
   currentVersion,
   currentVersionCode,
   forced,
@@ -40,18 +43,19 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
   onDismiss,
 }) => {
   const [browserError, setBrowserError] = React.useState<string | null>(null);
-  const downloading = download.phase === 'downloading';
+  const downloading = download.phase === 'downloading' || download.phase === 'verifying';
   const percent = download.total > 0 ? Math.min(100, Math.round((download.received / download.total) * 100)) : 0;
+  const canMinimize = !forced && !downloading;
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !forced && !downloading) {
+      if (event.key === 'Escape' && canMinimize) {
         onClose();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [forced, downloading, onClose]);
+  }, [canMinimize, onClose]);
 
   const handleBrowserDownload = async () => {
     setBrowserError(null);
@@ -71,15 +75,17 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
     >
       <div className="w-full max-w-md rounded-[18px] bg-white shadow-xl overflow-hidden">
         <div className="flex items-center justify-between border-b border-[#ECE7DD] bg-white px-5 py-3.5">
-          <h2 className="text-sm font-bold text-[#262925]">Pembaruan tersedia</h2>
-          <button
-            type="button"
-            aria-label="Tutup dialog pembaruan"
-            onClick={onClose}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-[10px] bg-[#F2EFE8] text-[#686C65] hover:bg-[#E7E2D7] hover:text-[#262925]"
-          >
-            <X className="h-4 w-4" aria-hidden="true" />
-          </button>
+          <h2 className="text-sm font-bold text-[#262925]">Pembaruan aplikasi tersedia</h2>
+          {canMinimize && (
+            <button
+              type="button"
+              aria-label="Tutup dialog pembaruan"
+              onClick={onClose}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-[10px] bg-[#F2EFE8] text-[#686C65] hover:bg-[#E7E2D7] hover:text-[#262925]"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          )}
         </div>
 
         <div className="divide-y divide-[#ECE7DD] text-xs text-[#363A34]">
@@ -106,13 +112,19 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
               </div>
             )}
 
+            <p className="rounded-[12px] bg-[#F5F3EE] p-3 text-[11px] text-[#575B54]">
+              {mode === 'ota'
+                ? 'Pembaruan akan dipasang langsung di dalam aplikasi tanpa menginstal ulang APK.'
+                : 'Pembaruan ini memperbarui paket Android di tempat. Data dan akun Anda tetap tersimpan.'}
+            </p>
+
             {downloading && (
               <div className="space-y-1.5">
                 <div className="h-2 overflow-hidden rounded-full bg-[#ECE7DD]">
                   <div className="h-full bg-[#1F6F5B] transition-[width]" style={{ width: `${percent}%` }} />
                 </div>
                 <div className="flex justify-between tabular-nums text-[11px] font-medium text-[#737770]">
-                  <span>Mengunduh {percent}%</span>
+                  <span>{download.phase === 'verifying' ? 'Memasang...' : `Mengunduh ${percent}%`}</span>
                   <span>{formatBytes(download.received)} / {formatBytes(download.total)}</span>
                 </div>
               </div>
@@ -120,7 +132,9 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
 
             {download.phase === 'ready' && (
               <p className="rounded-[12px] bg-[#E5F2EE] p-3 text-[11px] font-medium text-[#165243]">
-                <span className="acronym">APK</span> terverifikasi dan siap dipasang.
+                {download.result
+                  ? 'APK terverifikasi dan siap dipasang.'
+                  : 'Pembaruan terpasang. Memuat ulang aplikasi...'}
               </p>
             )}
 
@@ -134,17 +148,30 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
               </p>
             )}
 
-            <button
-              type="button"
-              onClick={() => void handleBrowserDownload()}
-              className="text-[11px] font-medium text-[#686C65] underline-offset-2 hover:text-[#1F6F5B] hover:underline"
-            >
-              Unduh via browser sebagai ganti
-            </button>
+            {!downloading && (
+              <div className="flex flex-wrap items-center gap-3">
+                {mode === 'ota' && (
+                  <button
+                    type="button"
+                    onClick={() => onStartDownload(true)}
+                    className="text-[11px] font-medium text-[#686C65] underline-offset-2 hover:text-[#1F6F5B] hover:underline"
+                  >
+                    Unduh APK lengkap ({formatBytes(manifest.fileSize)})
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void handleBrowserDownload()}
+                  className="text-[11px] font-medium text-[#686C65] underline-offset-2 hover:text-[#1F6F5B] hover:underline"
+                >
+                  Unduh via browser
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-[#ECE7DD] bg-white px-5 py-3.5">
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#ECE7DD] bg-white px-5 py-3.5">
           {!forced && !downloading && (
             <button type="button" onClick={onDismiss} className="rounded-[12px] px-3 py-2 text-xs font-medium text-[#686C65] hover:bg-[#F2EFE8]">
               Nanti
@@ -158,23 +185,36 @@ export const UpdateDialog: React.FC<UpdateDialogProps> = ({
             >
               Batal
             </button>
-          ) : download.phase === 'ready' ? (
+          ) : download.phase === 'ready' && download.result ? (
             <button
               type="button"
               onClick={() => void onInstall()}
               className="btn-primary-tactile inline-flex items-center gap-1.5 rounded-[12px] px-4 py-2 text-xs font-semibold"
             >
               <Download className="h-3.5 w-3.5" />
-              <span>Instal <span className="acronym">APK</span></span>
+              <span>Instal APK</span>
+            </button>
+          ) : download.phase === 'ready' ? (
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="btn-primary-tactile inline-flex items-center gap-1.5 rounded-[12px] px-4 py-2 text-xs font-semibold"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              <span>Muat ulang</span>
             </button>
           ) : (
             <button
               type="button"
-              onClick={onStartDownload}
+              onClick={() => onStartDownload(false)}
               className="btn-primary-tactile inline-flex items-center gap-1.5 rounded-[12px] px-4 py-2 text-xs font-semibold"
             >
               <Download className="h-3.5 w-3.5" />
-              <span>Unduh <span className="acronym">APK</span></span>
+              <span>
+                {mode === 'ota'
+                  ? `Perbarui Sekarang (${formatBytes(manifest.bundleFileSize ?? manifest.fileSize)})`
+                  : `Unduh & Pasang (${formatBytes(manifest.fileSize)})`}
+              </span>
             </button>
           )}
           {download.phase === 'ready' && installPermissionRequired && (

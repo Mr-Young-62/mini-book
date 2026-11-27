@@ -1,11 +1,23 @@
 import { getErrorMessage } from '../lib/errorMessage';
+import { fetchManifestNative, isNativeUpdaterAvailable } from './updaterBridge';
 
 const APP_ID = 'org.readowl.library';
-const HOST_ALLOWLIST = new Set(['storage.googleapis.com', 'github.com']);
-const APK_PATH_RE = /^(\/[a-z0-9._-]+\/MeelieFont-v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\.apk|\/[^/]+\/[^/]+\/releases\/download\/v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\/MeelieFont-v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\.apk)$/i;
+const SUPABASE_HOST_RE = /^[a-z0-9-]+\.supabase\.co$/i;
+const SUPABASE_PUBLIC_BUCKET_RE = /^\/storage\/v1\/object\/public\/[a-z0-9._-]+\/(?:[a-z0-9._-]+\/)*/i;
+const GCS_APK_PATH_RE = /^\/[a-z0-9._-]+\/MeelieFont-v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\.apk$/i;
+const GITHUB_APK_PATH_RE = /^\/[^/]+\/[^/]+\/releases\/download\/v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\/MeelieFont-v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\.apk$/i;
+const SUPABASE_APK_PATH_RE = /^\/storage\/v1\/object\/public\/[a-z0-9._-]+\/(?:[a-z0-9._-]+\/)*MeelieFont-v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\.apk$/i;
+
+const GCS_BUNDLE_PATH_RE = /^\/[a-z0-9._-]+\/MeelieFont-bundle-v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\.zip$/i;
+const GITHUB_BUNDLE_PATH_RE = /^\/[^/]+\/[^/]+\/releases\/download\/v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\/MeelieFont-bundle-v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\.zip$/i;
+const SUPABASE_BUNDLE_PATH_RE = /^\/storage\/v1\/object\/public\/[a-z0-9._-]+\/(?:[a-z0-9._-]+\/)*MeelieFont-bundle-v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\.zip$/i;
+
+const GITHUB_MANIFEST_PATH_RE = /^\/[^/]+\/[^/]+\/releases\/(?:latest\/download|download\/v\d+\.\d+\.\d+(?:[.-][A-Za-z0-9.-]+)?)\/latest\.json$/i;
+
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_APK_BYTES = 500 * 1024 * 1024;
+const MAX_BUNDLE_BYTES = 150 * 1024 * 1024;
 
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const MAX_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -32,6 +44,12 @@ export interface UpdateManifest {
   fileSize: number;
   changelog: string[];
   forceUpdate: boolean;
+  bundleUrl?: string;
+  bundleSha256?: string;
+  bundleFileSize?: number;
+  bundleVersion?: string;
+  bundleVersionCode?: number;
+  minNativeVersionCode?: number;
   signature?: string;
 }
 
@@ -40,6 +58,17 @@ export interface UpdateCheckResult {
   manifest: UpdateManifest | null;
   forced: boolean;
   dismissed: boolean;
+  // Machine-readable cause for non-available results, plus a human message so
+  // Settings can explain *why* the update check failed instead of guessing.
+  reason: string | null;
+  message: string | null;
+}
+
+export interface UpdateConfigStatus {
+  enabled: boolean;
+  manifestUrl: string;
+  currentVersion: string;
+  currentVersionCode: number;
 }
 
 interface CheckState {
@@ -120,16 +149,32 @@ function writeJson(key: string, value: unknown): void {
   }
 }
 
-export function isAllowedDownloadUrl(value: unknown): value is string {
-  if (typeof value !== 'string') return false;
-  let url: URL;
+function parseHttpsUrl(value: unknown): URL | null {
+  if (typeof value !== 'string') return null;
   try {
-    url = new URL(value);
+    const url = new URL(value);
+    return url.protocol === 'https:' ? url : null;
   } catch {
-    return false;
+    return null;
   }
-  if (url.protocol !== 'https:' || !HOST_ALLOWLIST.has(url.hostname)) return false;
-  return APK_PATH_RE.test(url.pathname);
+}
+
+export function isAllowedDownloadUrl(value: unknown): value is string {
+  const url = parseHttpsUrl(value);
+  if (!url) return false;
+  if (url.hostname === 'storage.googleapis.com') return GCS_APK_PATH_RE.test(url.pathname);
+  if (url.hostname === 'github.com') return GITHUB_APK_PATH_RE.test(url.pathname);
+  if (SUPABASE_HOST_RE.test(url.hostname)) return SUPABASE_APK_PATH_RE.test(url.pathname);
+  return false;
+}
+
+export function isAllowedBundleUrl(value: unknown): value is string {
+  const url = parseHttpsUrl(value);
+  if (!url) return false;
+  if (url.hostname === 'storage.googleapis.com') return GCS_BUNDLE_PATH_RE.test(url.pathname);
+  if (url.hostname === 'github.com') return GITHUB_BUNDLE_PATH_RE.test(url.pathname);
+  if (SUPABASE_HOST_RE.test(url.hostname)) return SUPABASE_BUNDLE_PATH_RE.test(url.pathname);
+  return false;
 }
 
 export function validateManifest(raw: unknown): UpdateManifest | null {
@@ -152,6 +197,45 @@ export function validateManifest(raw: unknown): UpdateManifest | null {
   const changelog = raw.changelog === undefined ? [] : raw.changelog;
   if (!Array.isArray(changelog) || !changelog.every((entry) => typeof entry === 'string')) return null;
 
+  const hasAnyBundleField =
+    raw.bundleUrl !== undefined ||
+    raw.bundleSha256 !== undefined ||
+    raw.bundleFileSize !== undefined ||
+    raw.bundleVersion !== undefined ||
+    raw.bundleVersionCode !== undefined;
+
+  let bundleUrl: string | undefined;
+  let bundleSha256: string | undefined;
+  let bundleFileSize: number | undefined;
+  let bundleVersion: string | undefined;
+  let bundleVersionCode: number | undefined;
+
+  if (hasAnyBundleField) {
+    if (!isAllowedBundleUrl(raw.bundleUrl)) return null;
+    if (typeof raw.bundleSha256 !== 'string' || !SHA256_RE.test(raw.bundleSha256)) return null;
+    if (!Number.isInteger(raw.bundleFileSize) || (raw.bundleFileSize as number) <= 0 || (raw.bundleFileSize as number) > MAX_BUNDLE_BYTES) {
+      return null;
+    }
+    bundleUrl = raw.bundleUrl;
+    bundleSha256 = raw.bundleSha256;
+    bundleFileSize = raw.bundleFileSize as number;
+    if (raw.bundleVersion !== undefined) {
+      if (typeof raw.bundleVersion !== 'string' || !raw.bundleVersion.trim()) return null;
+      bundleVersion = raw.bundleVersion;
+    }
+    if (raw.bundleVersionCode !== undefined) {
+      if (!Number.isInteger(raw.bundleVersionCode) || (raw.bundleVersionCode as number) <= 0) return null;
+      bundleVersionCode = raw.bundleVersionCode as number;
+    }
+  }
+
+  let minNativeVersionCode: number | undefined;
+  if (raw.minNativeVersionCode !== undefined) {
+    if (!Number.isInteger(raw.minNativeVersionCode) || (raw.minNativeVersionCode as number) < 1) return null;
+    if ((raw.minNativeVersionCode as number) > (raw.versionCode as number)) return null;
+    minNativeVersionCode = raw.minNativeVersionCode as number;
+  }
+
   return {
     schemaVersion: 1,
     app: APP_ID,
@@ -164,8 +248,26 @@ export function validateManifest(raw: unknown): UpdateManifest | null {
     fileSize: raw.fileSize as number,
     changelog: changelog as string[],
     forceUpdate: raw.forceUpdate === true,
+    ...(bundleUrl !== undefined ? { bundleUrl } : {}),
+    ...(bundleSha256 !== undefined ? { bundleSha256 } : {}),
+    ...(bundleFileSize !== undefined ? { bundleFileSize } : {}),
+    ...(bundleVersion !== undefined ? { bundleVersion } : {}),
+    ...(bundleVersionCode !== undefined ? { bundleVersionCode } : {}),
+    ...(minNativeVersionCode !== undefined ? { minNativeVersionCode } : {}),
     ...(typeof raw.signature === 'string' ? { signature: raw.signature } : {}),
   };
+}
+
+export function canApplyWebBundle(
+  manifest: UpdateManifest,
+  nativeVersionCode: number,
+  effectiveVersionCode: number,
+): boolean {
+  if (!manifest.bundleUrl || !manifest.bundleSha256 || !manifest.bundleFileSize) return false;
+  const targetCode = manifest.bundleVersionCode ?? manifest.versionCode;
+  if (targetCode <= effectiveVersionCode) return false;
+  const requiredNative = manifest.minNativeVersionCode ?? 1;
+  return nativeVersionCode >= requiredNative;
 }
 
 export function getCurrentVersion(): { version: string; versionCode: number } {
@@ -177,16 +279,22 @@ export function getCurrentVersion(): { version: string; versionCode: number } {
 
 export function getManifestUrl(): string {
   const value = String(import.meta.env.VITE_UPDATE_MANIFEST_URL || '').trim();
-  if (!value) return '';
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    return '';
+  const url = parseHttpsUrl(value);
+  if (!url) return '';
+  if (url.hostname === 'storage.googleapis.com' && url.pathname.endsWith('/latest.json')) {
+    return url.toString();
   }
-  if (url.protocol !== 'https:' || !HOST_ALLOWLIST.has(url.hostname)) return '';
-  if (!url.pathname.endsWith('/latest.json')) return '';
-  return url.toString();
+  if (
+    SUPABASE_HOST_RE.test(url.hostname) &&
+    SUPABASE_PUBLIC_BUCKET_RE.test(url.pathname) &&
+    url.pathname.endsWith('/latest.json')
+  ) {
+    return url.toString();
+  }
+  if (url.hostname === 'github.com' && GITHUB_MANIFEST_PATH_RE.test(url.pathname)) {
+    return url.toString();
+  }
+  return '';
 }
 
 export function evaluateManifest(
@@ -194,9 +302,11 @@ export function evaluateManifest(
   currentVersionCode: number,
   dismissedVersionCode: number,
 ): UpdateCheckResult {
-  if (!manifest) return { status: 'unavailable', manifest: null, forced: false, dismissed: false };
+  if (!manifest) {
+    return { status: 'unavailable', manifest: null, forced: false, dismissed: false, reason: null, message: null };
+  }
   if (manifest.versionCode <= currentVersionCode) {
-    return { status: 'up_to_date', manifest, forced: false, dismissed: false };
+    return { status: 'up_to_date', manifest, forced: false, dismissed: false, reason: null, message: null };
   }
   const forced = manifest.forceUpdate
     || (manifest.minimumSupportedVersionCode !== undefined && currentVersionCode < manifest.minimumSupportedVersionCode);
@@ -205,6 +315,45 @@ export function evaluateManifest(
     manifest,
     forced,
     dismissed: dismissedVersionCode >= manifest.versionCode,
+    reason: null,
+    message: null,
+  };
+}
+
+// Map low-level fetch/validation failures to a cause the UI can show. Without
+// this the settings screen only said "check your internet" even when the real
+// problem was an unsigned manifest or a misconfigured URL.
+function describeCheckFailure(error: unknown): { reason: string; message: string } {
+  const raw = getErrorMessage(error);
+  if (/signature/i.test(raw)) {
+    return {
+      reason: 'signature-invalid',
+      message: 'Manifest pembaruan tidak lolos verifikasi tanda tangan. Pastikan rilis ditandatangani dengan kunci yang cocok dengan aplikasi.',
+    };
+  }
+  if (/HTTP\s+\d+/i.test(raw)) {
+    return { reason: 'http-error', message: `Server manifest pembaruan menolak permintaan (${raw}).` };
+  }
+  if (/not json|not an object|failed validation/i.test(raw)) {
+    return { reason: 'invalid-manifest', message: 'Format manifest pembaruan tidak valid atau tidak lengkap.' };
+  }
+  if (/abort|timeout|network|failed to fetch/i.test(raw)) {
+    return { reason: 'network-error', message: 'Tidak dapat menghubungi server pembaruan. Periksa koneksi internet.' };
+  }
+  return { reason: 'check-failed', message: `Pemeriksaan pembaruan gagal: ${raw}` };
+}
+
+export function getUpdateConfigStatus(versionCodeOverride?: number): UpdateConfigStatus {
+  const current = getCurrentVersion();
+  const code = versionCodeOverride && Number.isInteger(versionCodeOverride) && versionCodeOverride > 0
+    ? versionCodeOverride
+    : current.versionCode;
+  const manifestUrl = getManifestUrl();
+  return {
+    enabled: Boolean(manifestUrl) && code > 0,
+    manifestUrl,
+    currentVersion: current.version,
+    currentVersionCode: code,
   };
 }
 
@@ -232,27 +381,41 @@ function freshnessInterval(failures: number): number {
   return Math.min(MAX_INTERVAL_MS, CHECK_INTERVAL_MS * 2 ** Math.min(failures, 2));
 }
 
-async function fetchOnce(url: string): Promise<UpdateManifest> {
+async function fetchManifestPayload(url: string): Promise<unknown> {
+  if (isNativeUpdaterAvailable()) {
+    const text = await fetchManifestNative(url);
+    return JSON.parse(text);
+  }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
     const response = await fetch(url, { cache: 'no-store', signal: controller.signal });
     if (!response.ok) throw new Error(`Manifest HTTP ${response.status}`);
-    const contentType = response.headers.get('content-type') || '';
-    if (!contentType.includes('json')) throw new Error('Manifest is not JSON');
-    const raw = await response.json();
-    if (!isRecord(raw)) throw new Error('Manifest is not an object');
-    // Verify signature on the raw payload BEFORE defaults are injected, so the
-    // canonical JSON matches exactly what the server signed.
-    if (!(await verifySignatureWithKey(raw as unknown as UpdateManifest, UPDATER_PUBLIC_KEY_B64))) {
-      throw new Error('Manifest signature is invalid');
+    // Parse the body directly instead of trusting Content-Type: GitHub release
+    // assets and some static hosts serve latest.json as text/plain or
+    // octet-stream. The signature check below is the real integrity gate.
+    const text = await response.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error('Manifest is not JSON');
     }
-    const manifest = validateManifest(raw);
-    if (!manifest) throw new Error('Manifest failed validation');
-    return manifest;
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function fetchOnce(url: string): Promise<UpdateManifest> {
+  const raw = await fetchManifestPayload(url);
+  if (!isRecord(raw)) throw new Error('Manifest is not an object');
+  // Verify signature on the raw payload BEFORE defaults are injected, so the
+  // canonical JSON matches exactly what the server signed.
+  if (!(await verifySignatureWithKey(raw as unknown as UpdateManifest, UPDATER_PUBLIC_KEY_B64))) {
+    throw new Error('Manifest signature is invalid');
+  }
+  const manifest = validateManifest(raw);
+  if (!manifest) throw new Error('Manifest failed validation');
+  return manifest;
 }
 
 async function fetchWithRetry(url: string): Promise<UpdateManifest> {
@@ -268,11 +431,36 @@ async function fetchWithRetry(url: string): Promise<UpdateManifest> {
   }
 }
 
-async function runCheck(manual: boolean, force: boolean): Promise<UpdateCheckResult> {
+async function runCheck(
+  manual: boolean,
+  force: boolean,
+  versionCodeOverride?: number,
+): Promise<UpdateCheckResult> {
   const current = getCurrentVersion();
+  const activeVersionCode =
+    versionCodeOverride && Number.isInteger(versionCodeOverride) && versionCodeOverride > 0
+      ? versionCodeOverride
+      : current.versionCode;
   const url = getManifestUrl();
-  if (!url || current.versionCode <= 0) {
-    return { status: 'disabled', manifest: null, forced: false, dismissed: false };
+  if (!url) {
+    return {
+      status: 'disabled',
+      manifest: null,
+      forced: false,
+      dismissed: false,
+      reason: 'missing-manifest-url',
+      message: 'URL manifest pembaruan belum dikonfigurasi pada build ini (VITE_UPDATE_MANIFEST_URL).',
+    };
+  }
+  if (activeVersionCode <= 0) {
+    return {
+      status: 'disabled',
+      manifest: null,
+      forced: false,
+      dismissed: false,
+      reason: 'missing-version-code',
+      message: 'Kode versi aplikasi belum diketahui pada build ini, sehingga pembaruan tidak dapat dibandingkan.',
+    };
   }
 
   let state = readState();
@@ -286,36 +474,52 @@ async function runCheck(manual: boolean, force: boolean): Promise<UpdateCheckRes
   if (skipFetch) {
     return evaluateManifest(
       Number.isFinite(cacheAge) && cacheAge <= MANIFEST_TTL_MS ? cached?.manifest ?? null : null,
-      current.versionCode,
+      activeVersionCode,
       state.lastSeenVersionCode,
     );
   }
 
   try {
     const manifest = await fetchWithRetry(url);
-    state = { lastCheckAt: new Date().toISOString(), failures: 0, lastSeenVersionCode: state.lastSeenVersionCode };
+    state = {
+      lastCheckAt: new Date().toISOString(),
+      failures: 0,
+      lastSeenVersionCode: manual ? 0 : state.lastSeenVersionCode,
+    };
     writeJson(STORAGE_CHECK, state);
     writeJson(STORAGE_MANIFEST, { fetchedAt: state.lastCheckAt, manifest } satisfies CachedManifest);
-    return evaluateManifest(manifest, current.versionCode, state.lastSeenVersionCode);
+    const evaluated = evaluateManifest(manifest, activeVersionCode, state.lastSeenVersionCode);
+    return manual && evaluated.status === 'available' ? { ...evaluated, dismissed: false } : evaluated;
   } catch (error) {
     console.warn('Update manifest check failed:', getErrorMessage(error));
+    const failure = describeCheckFailure(error);
     state = {
       lastCheckAt: new Date().toISOString(),
       failures: state.failures + 1,
       lastSeenVersionCode: state.lastSeenVersionCode,
     };
     writeJson(STORAGE_CHECK, state);
-    return evaluateManifest(
+    const evaluated = evaluateManifest(
       Number.isFinite(cacheAge) && cacheAge <= MANIFEST_TTL_MS ? cached?.manifest ?? null : null,
-      current.versionCode,
+      activeVersionCode,
       state.lastSeenVersionCode,
     );
+    if (evaluated.status === 'available') {
+      return manual ? { ...evaluated, dismissed: false } : evaluated;
+    }
+    return { ...evaluated, status: 'unavailable', reason: failure.reason, message: failure.message };
   }
 }
 
-export function checkForUpdate(options: { manual?: boolean; force?: boolean } = {}): Promise<UpdateCheckResult> {
+export function checkForUpdate(
+  options: { manual?: boolean; force?: boolean; currentVersionCode?: number } = {},
+): Promise<UpdateCheckResult> {
   if (inFlight) return inFlight;
-  const task = runCheck(Boolean(options.manual), Boolean(options.force));
+  const task = runCheck(
+    Boolean(options.manual),
+    Boolean(options.force),
+    options.currentVersionCode,
+  );
   inFlight = task;
   void task.finally(() => {
     if (inFlight === task) inFlight = null;

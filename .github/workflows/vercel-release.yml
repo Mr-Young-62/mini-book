@@ -66,6 +66,9 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           APK_STORAGE_BUCKET: ${{ secrets.APK_STORAGE_BUCKET }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          UPDATE_STORAGE_BUCKET: ${{ secrets.UPDATE_STORAGE_BUCKET }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
           VITE_AUTH_REDIRECT_URL: ${{ secrets.VITE_AUTH_REDIRECT_URL }}
@@ -79,8 +82,13 @@ jobs:
             export VITE_APP_VERSION="main"
             export VITE_APP_VERSION_CODE="0"
           fi
+          BUCKET="${UPDATE_STORAGE_BUCKET:-app-updates}"
+          SUPABASE_BASE="${SUPABASE_URL:-$VITE_SUPABASE_URL}"
+          SUPABASE_BASE="${SUPABASE_BASE%/}"
           if [ -n "$APK_STORAGE_BUCKET" ]; then
             export VITE_UPDATE_MANIFEST_URL="https://storage.googleapis.com/${APK_STORAGE_BUCKET}/latest.json"
+          elif [ -n "$SUPABASE_BASE" ] && [ -n "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            export VITE_UPDATE_MANIFEST_URL="${SUPABASE_BASE}/storage/v1/object/public/${BUCKET}/latest.json"
           elif [ -z "$VITE_UPDATE_MANIFEST_URL" ]; then
             export VITE_UPDATE_MANIFEST_URL="https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/latest.json"
           fi

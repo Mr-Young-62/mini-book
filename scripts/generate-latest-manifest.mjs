@@ -1,40 +1,26 @@
 #!/usr/bin/env node
-// ReadOwl updater — generate latest.json release manifest (Tahap A).
-//
-// Produces the manifest consumed by the in-app updater (see READOWL-UPDATER-PLAN.md §3.2).
-// Designed for CI (android-release.yml) but runnable locally for testing.
-//
-// Examples:
-//   node scripts/generate-latest-manifest.mjs \
-//     --tag v1.2.3 --apk dist-release/MeelieFont-v1.2.3.apk \
-//     --bucket my-bucket --out latest.json
-//
-//   node scripts/generate-latest-manifest.mjs \
-//     --tag v1.2.3 --sha256 <hex> --size 25000000 \
-//     --url https://storage.googleapis.com/bucket/MeelieFont-v1.2.3.apk \
-//     --published previous-latest.json --changelog-file changes.txt
-//
-// Security notes:
-//   - The manifest is generated locally and uploaded AFTER the APK upload is verified.
-//   - `--published <path>` enforces versionCode monotonicity against the currently
-//     published manifest (fail closed when the published manifest is unusable).
-//   - Ed25519 signing of the manifest is added in Tahap E (separate step/flag).
+// ReadOwl updater — generate latest.json release manifest (Tahap A + OTA bundle).
 
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { readFile, writeFile, stat } from 'node:fs/promises';
-import { pathToFileURL } from 'node:url';
 import { parseVersion, assertNextVersionCode } from './version-utils.mjs';
 
 const APP_ID = 'org.readowl.library';
 const DEFAULT_SCHEMA_VERSION = 1;
-const MAX_APK_BYTES = 500 * 1024 * 1024; // sanity cap (500 MB)
+const MAX_APK_BYTES = 500 * 1024 * 1024;
+const MAX_BUNDLE_BYTES = 150 * 1024 * 1024;
 const HEX64_RE = /^[0-9a-f]{64}$/;
-const HOST_ALLOWLIST = new Set(['storage.googleapis.com', 'github.com']);
-const APK_PATH_RE = /^(\/[a-z0-9._-]+\/MeelieFont-v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\.apk|\/[^/]+\/[^/]+\/releases\/download\/v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\/MeelieFont-v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\.apk)$/i;
+const SUPABASE_HOST_RE = /^[a-z0-9-]+\.supabase\.co$/i;
+const GCS_APK_PATH_RE = /^\/[a-z0-9._-]+\/MeelieFont-v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\.apk$/i;
+const SUPABASE_APK_PATH_RE = /^\/storage\/v1\/object\/public\/[a-z0-9._-]+\/(?:[a-z0-9._-]+\/)*MeelieFont-v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\.apk$/i;
+const GITHUB_APK_PATH_RE = /^\/[^/]+\/[^/]+\/releases\/download\/v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\/MeelieFont-v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\.apk$/i;
+
+const GCS_BUNDLE_PATH_RE = /^\/[a-z0-9._-]+\/MeelieFont-bundle-v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\.zip$/i;
+const SUPABASE_BUNDLE_PATH_RE = /^\/storage\/v1\/object\/public\/[a-z0-9._-]+\/(?:[a-z0-9._-]+\/)*MeelieFont-bundle-v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\.zip$/i;
+const GITHUB_BUNDLE_PATH_RE = /^\/[^/]+\/[^/]+\/releases\/download\/v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\/MeelieFont-bundle-v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\.zip$/i;
 
 function fail(message) {
-  // Printed once by the top-level catch; only set the exit code here.
   process.exitCode = 1;
   throw new Error(message);
 }
@@ -45,18 +31,25 @@ function usage() {
       'Usage: node scripts/generate-latest-manifest.mjs --tag <vX.Y.Z> [options]',
       '',
       'Required (one of):',
-      '  --apk <path>              APK file: computes sha256 + fileSize automatically',
-      '  --sha256 <hex> --size <n> Provide checksum/size directly (hex bytes test paths)',
+      '  --apk <path>               APK file: computes sha256 + fileSize automatically',
+      '  --sha256 <hex> --size <n>  Provide checksum/size directly',
       '',
       'Required:',
-      '  --tag <vX.Y.Z>            Release tag (SemVer, no pre-release suffixes)',
+      '  --tag <vX.Y.Z>             Release tag (SemVer, no pre-release suffixes)',
       '',
       'Download URL (one of):',
-      '  --bucket <name>           Build https://storage.googleapis.com/<bucket>/MeelieFont-<tag>.apk',
-      '  --url <https-url>         Full download URL (must pass the same allowlist as the app)',
+      '  --bucket <name>            Build https://storage.googleapis.com/<bucket>/MeelieFont-<tag>.apk',
+      '  --url <https-url>          Full APK URL (GCS, Supabase Storage public, or GitHub Releases)',
+      '',
+      'Optional OTA web bundle:',
+      '  --bundle <zip-path>        Zipped dist/ bundle: computes bundleSha256 + bundleFileSize',
+      '  --bundle-url <https-url>   Full bundle zip URL',
+      '  --bundle-sha256 <hex>      Bundle SHA-256 (when --bundle is omitted)',
+      '  --bundle-size <n>          Bundle size in bytes (when --bundle is omitted)',
+      '  --min-native-version-code <n> Minimum APK versionCode required for OTA bundle',
       '',
       'Optional:',
-      '  --out <path>              Output file (default: latest.json)',
+      '  --out <path>               Output file (default: latest.json)',
       '  --published <path>         Previous latest.json: enforce versionCode monotonicity',
       '  --changelog-file <path>    One entry per line (blank lines/# comments ignored)',
       '  --changelog <a,b,c>        Inline comma-separated changelog entries',
@@ -101,20 +94,38 @@ async function sha256OfFile(path) {
   return hash.digest('hex');
 }
 
+function isAllowedApkUrl(rawUrl) {
+  let parsed;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== 'https:') return false;
+  if (parsed.hostname === 'storage.googleapis.com') return GCS_APK_PATH_RE.test(parsed.pathname);
+  if (SUPABASE_HOST_RE.test(parsed.hostname)) return SUPABASE_APK_PATH_RE.test(parsed.pathname);
+  if (parsed.hostname === 'github.com') return GITHUB_APK_PATH_RE.test(parsed.pathname);
+  return false;
+}
+
+function isAllowedBundleUrl(rawUrl) {
+  let parsed;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== 'https:') return false;
+  if (parsed.hostname === 'storage.googleapis.com') return GCS_BUNDLE_PATH_RE.test(parsed.pathname);
+  if (SUPABASE_HOST_RE.test(parsed.hostname)) return SUPABASE_BUNDLE_PATH_RE.test(parsed.pathname);
+  if (parsed.hostname === 'github.com') return GITHUB_BUNDLE_PATH_RE.test(parsed.pathname);
+  return false;
+}
+
 function buildDownloadUrl(args, tag) {
   if (args.url) {
-    let parsed;
-    try {
-      parsed = new URL(args.url);
-    } catch {
-      fail(`--url is not a valid URL: ${args.url}`);
-    }
-    if (parsed.protocol !== 'https:') fail('--url must use https://');
-    if (!HOST_ALLOWLIST.has(parsed.hostname)) {
-      fail(`--url host "${parsed.hostname}" is not in the allowlist (${[...HOST_ALLOWLIST].join(', ')}).`);
-    }
-    if (!APK_PATH_RE.test(parsed.pathname)) {
-      fail(`--url path "${parsed.pathname}" does not match the required APK pattern for GCS or GitHub Releases`);
+    if (!isAllowedApkUrl(args.url)) {
+      fail(`--url "${args.url}" does not match the required HTTPS APK pattern for GCS, Supabase Storage, or GitHub Releases.`);
     }
     return args.url;
   }
@@ -124,10 +135,9 @@ function buildDownloadUrl(args, tag) {
 }
 
 function parseChangelog(args) {
-  const inline = args.changelog
+  return args.changelog
     ? args.changelog.split(',').map((s) => s.trim()).filter(Boolean)
     : [];
-  return inline;
 }
 
 async function parseChangelogFile(path) {
@@ -148,7 +158,7 @@ async function readPublished(path) {
     }
     return parsed;
   } catch (error) {
-    if (error && error.code === 'ENOENT') return null; // bootstrap: nothing published yet
+    if (error && error.code === 'ENOENT') return null;
     if (error instanceof SyntaxError) {
       fail(`Published manifest is not valid JSON (${error.message}); refusing to publish over it.`);
     }
@@ -167,10 +177,8 @@ async function main() {
   const { version, versionCode } = parseVersion(args.tag);
   const tag = `v${version}`;
 
-  // --- downloadUrl (same allowlist logic the app enforces) ---
   const downloadUrl = buildDownloadUrl(args, tag);
 
-  // --- sha256 + fileSize ---
   let sha256 = args.sha256;
   let fileSize = args.size !== undefined ? Number(args.size) : null;
   if (args.apk) {
@@ -186,20 +194,47 @@ async function main() {
   if (!Number.isInteger(fileSize) || fileSize <= 0) fail('--size must be a positive integer (bytes).');
   if (fileSize > MAX_APK_BYTES) fail(`--size ${fileSize} exceeds the ${MAX_APK_BYTES} byte sanity cap.`);
 
-  // --- monotonicity against the currently published manifest ---
+  // Optional OTA bundle metadata
+  let bundleUrl = args['bundle-url'] || null;
+  let bundleSha256 = args['bundle-sha256'] || null;
+  let bundleFileSize = args['bundle-size'] !== undefined ? Number(args['bundle-size']) : null;
+  if (args.bundle) {
+    if (bundleSha256 || bundleFileSize !== null) fail('Use either --bundle or --bundle-sha256/--bundle-size, not both.');
+    const info = await stat(args.bundle);
+    if (!info.isFile()) fail(`--bundle path is not a file: ${args.bundle}`);
+    bundleSha256 = await sha256OfFile(args.bundle);
+    bundleFileSize = info.size;
+  }
+  if (bundleUrl && !isAllowedBundleUrl(bundleUrl)) {
+    fail(`--bundle-url "${bundleUrl}" does not match the required HTTPS zip pattern.`);
+  }
+  if (bundleUrl || bundleSha256 || bundleFileSize !== null) {
+    if (!bundleUrl || !bundleSha256 || bundleFileSize === null) {
+      fail('Incomplete bundle arguments: provide --bundle-url together with --bundle (or --bundle-sha256 and --bundle-size).');
+    }
+    bundleSha256 = bundleSha256.toLowerCase();
+    if (!HEX64_RE.test(bundleSha256)) fail('--bundle-sha256 must be 64 lowercase hex characters.');
+    if (!Number.isInteger(bundleFileSize) || bundleFileSize <= 0 || bundleFileSize > MAX_BUNDLE_BYTES) {
+      fail(`--bundle-size must be between 1 and ${MAX_BUNDLE_BYTES} bytes.`);
+    }
+  }
+
+  let minNativeVersionCode = null;
+  if (args['min-native-version-code'] !== undefined) {
+    minNativeVersionCode = Number(args['min-native-version-code']);
+    if (!Number.isInteger(minNativeVersionCode) || minNativeVersionCode < 1 || minNativeVersionCode > versionCode) {
+      fail('--min-native-version-code must be an integer between 1 and versionCode.');
+    }
+  }
+
   const published = args.published ? await readPublished(args.published) : null;
   const publishedCode = published ? published.versionCode : null;
-  const gate = assertNextVersionCode(
-    publishedCode,
-    versionCode,
-  );
+  const gate = assertNextVersionCode(publishedCode, versionCode);
 
-  // --- changelog ---
   let changelog = [];
   if (args['changelog-file']) changelog = await parseChangelogFile(args['changelog-file']);
   if (args.changelog) changelog = [...changelog, ...parseChangelog(args)];
 
-  // --- optional fields ---
   let minimumSupportedVersionCode = null;
   if (args['min-version-code'] !== undefined) {
     minimumSupportedVersionCode = Number(args['min-version-code']);
@@ -229,6 +264,16 @@ async function main() {
   if (minimumSupportedVersionCode !== null) {
     manifest.minimumSupportedVersionCode = minimumSupportedVersionCode;
   }
+  if (bundleUrl) {
+    manifest.bundleUrl = bundleUrl;
+    manifest.bundleSha256 = bundleSha256;
+    manifest.bundleFileSize = bundleFileSize;
+    manifest.bundleVersion = version;
+    manifest.bundleVersionCode = versionCode;
+    if (minNativeVersionCode !== null) {
+      manifest.minNativeVersionCode = minNativeVersionCode;
+    }
+  }
   if (manifest.app !== APP_ID) fail(`--app must be "${APP_ID}" (got "${manifest.app}").`);
   if (!Number.isInteger(manifest.schemaVersion) || manifest.schemaVersion < 1) fail('Invalid --schema-version.');
 
@@ -244,6 +289,7 @@ async function main() {
       `  downloadUrl  : ${manifest.downloadUrl}`,
       `  sha256       : ${manifest.sha256.slice(0, 16)}…`,
       `  fileSize     : ${manifest.fileSize}`,
+      ...(manifest.bundleUrl ? [`  bundleUrl    : ${manifest.bundleUrl} (${manifest.bundleFileSize} bytes)`] : []),
       `  changelog    : ${manifest.changelog.length} entries`,
       '',
     ].join('\n'),

@@ -1,16 +1,5 @@
 #!/usr/bin/env node
 // Prepare src-tauri for a tagged desktop build (Tahap F).
-//
-// 1. Writes the release version (from the git tag) into tauri.conf.json and
-//    Cargo.toml so the updater compares real versions (stale 1.0.0 would make
-//    every release look "newer" forever).
-// 2. Injects the updater endpoint (public GCS URL) into tauri.conf.json. The
-//    bucket name is a CI secret, so the endpoint cannot live in the repo; the
-//    updater plugin fails closed when the endpoint is missing.
-//
-// Usage:
-//   node scripts/prepare-desktop-build.mjs --tag v1.2.3 \
-//     --endpoint https://storage.googleapis.com/BUCKET/desktop/latest.json
 
 import { readFile, writeFile } from 'node:fs/promises';
 import { parseVersion } from './version-utils.mjs';
@@ -45,9 +34,13 @@ function validateEndpoint(endpoint) {
   }
   if (url.protocol !== 'https:') fail('Endpoint must use https://');
   const isGcs = url.hostname === 'storage.googleapis.com' && url.pathname.endsWith('/latest.json');
+  const isSupabase = /^[a-z0-9-]+\.supabase\.co$/i.test(url.hostname)
+    && /^\/storage\/v1\/object\/public\/[a-z0-9._-]+\/(?:[a-z0-9._-]+\/)*latest\.json$/i.test(url.pathname);
   const isGitHub = url.hostname === 'github.com'
-    && /^\/[^/]+\/[^/]+\/releases\/download\/v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?\/[^/]+\.json$/.test(url.pathname);
-  if (!isGcs && !isGitHub) fail('Endpoint must be a GCS latest.json URL or a GitHub release JSON asset URL.');
+    && /^\/[^/]+\/[^/]+\/releases\/(?:latest\/download|download\/v\d+\.\d+\.\d+([.-][A-Za-z0-9.-]+)?)\/[^/]+\.json$/.test(url.pathname);
+  if (!isGcs && !isSupabase && !isGitHub) {
+    fail('Endpoint must be a GCS, Supabase Storage public, or GitHub release JSON asset URL.');
+  }
 }
 
 async function main() {

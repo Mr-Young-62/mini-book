@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  canApplyWebBundle,
   canonicalJson,
   evaluateManifest,
   getCurrentVersion,
+  getUpdateConfigStatus,
+  isAllowedBundleUrl,
   isAllowedDownloadUrl,
   validateManifest,
   verifySignatureWithKey,
@@ -22,9 +25,30 @@ const baseManifest = {
   forceUpdate: false,
 };
 
+const bundleManifest = {
+  ...baseManifest,
+  bundleUrl: 'https://proj.supabase.co/storage/v1/object/public/app-updates/MeelieFont-bundle-v1.2.3.zip',
+  bundleSha256: 'b'.repeat(64),
+  bundleFileSize: 1_500_000,
+  bundleVersion: '1.2.3',
+  bundleVersionCode: 1002003,
+  minNativeVersionCode: 1002000,
+};
+
 describe('updateService manifest validation', () => {
   it('accepts a complete valid manifest', () => {
     expect(validateManifest(baseManifest)).toEqual(baseManifest);
+  });
+
+  it('accepts optional OTA web bundle fields', () => {
+    expect(validateManifest(bundleManifest)).toEqual(bundleManifest);
+  });
+
+  it('rejects partial or invalid OTA bundle fields', () => {
+    const { bundleSha256: _missingSha, ...partial } = bundleManifest;
+    expect(validateManifest(partial)).toBeNull();
+    expect(validateManifest({ ...bundleManifest, bundleUrl: 'https://evil.example/MeelieFont-bundle-v1.2.3.zip' })).toBeNull();
+    expect(validateManifest({ ...bundleManifest, minNativeVersionCode: 2_000_000 })).toBeNull();
   });
 
   it('rejects wrong app id or schema version', () => {
@@ -55,13 +79,31 @@ describe('updateService manifest validation', () => {
 });
 
 describe('updateService download URL allowlist', () => {
-  it('allows https GCS and GitHub release APK paths', () => {
+  it('allows https GCS, Supabase public, and GitHub release APK paths', () => {
     expect(isAllowedDownloadUrl(baseManifest.downloadUrl)).toBe(true);
+    expect(isAllowedDownloadUrl('https://abc123.supabase.co/storage/v1/object/public/app-updates/MeelieFont-v1.2.3.apk')).toBe(true);
     expect(isAllowedDownloadUrl('https://github.com/Mr-Young-62/mini-book/releases/download/v1.2.3/MeelieFont-v1.2.3.apk')).toBe(true);
     expect(isAllowedDownloadUrl('http://storage.googleapis.com/bucket/MeelieFont-v1.2.3.apk')).toBe(false);
     expect(isAllowedDownloadUrl('https://evil.example/bucket/MeelieFont-v1.2.3.apk')).toBe(false);
     expect(isAllowedDownloadUrl('https://storage.googleapis.com/bucket/other.apk')).toBe(false);
     expect(isAllowedDownloadUrl('https://github.com/Mr-Young-62/mini-book/releases/download/v1.2.3/other.apk')).toBe(false);
+  });
+
+  it('allows https GCS, Supabase public, and GitHub release bundle zip paths', () => {
+    expect(isAllowedBundleUrl('https://storage.googleapis.com/meeliefont/MeelieFont-bundle-v1.2.3.zip')).toBe(true);
+    expect(isAllowedBundleUrl('https://abc123.supabase.co/storage/v1/object/public/app-updates/MeelieFont-bundle-v1.2.3.zip')).toBe(true);
+    expect(isAllowedBundleUrl('https://github.com/Mr-Young-62/mini-book/releases/download/v1.2.3/MeelieFont-bundle-v1.2.3.zip')).toBe(true);
+    expect(isAllowedBundleUrl('https://abc123.supabase.co/storage/v1/object/sign/app-updates/MeelieFont-bundle-v1.2.3.zip')).toBe(false);
+  });
+});
+
+describe('updateService OTA bundle eligibility', () => {
+  const parsed = validateManifest(bundleManifest) as UpdateManifest;
+
+  it('allows OTA bundle when native version meets minNativeVersionCode', () => {
+    expect(canApplyWebBundle(parsed, 1002000, 1002002)).toBe(true);
+    expect(canApplyWebBundle(parsed, 1002001, 1002003)).toBe(false);
+    expect(canApplyWebBundle(parsed, 1001999, 1001999)).toBe(false);
   });
 });
 
@@ -92,6 +134,13 @@ describe('updateService version decisions', () => {
 describe('updateService build version', () => {
   it('disables the checker for local builds without injected version', () => {
     expect(getCurrentVersion()).toEqual({ version: '0.0.0', versionCode: 0 });
+  });
+
+  it('reports updater configuration as disabled without build env', () => {
+    const status = getUpdateConfigStatus();
+    expect(status.enabled).toBe(false);
+    expect(status.manifestUrl).toBe('');
+    expect(status.currentVersionCode).toBe(0);
   });
 });
 
