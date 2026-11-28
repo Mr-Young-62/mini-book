@@ -71,9 +71,14 @@ async function signManifest(inPath, keyPath, outPath, expectedPublicKey) {
         `The app would reject this manifest. Pin the derived key in src/services/updateService.ts or use the matching private key.`,
     );
   }
-  const data = Buffer.from(canonicalJson(manifest), 'utf8');
+  // Sign canonical JSON WITHOUT any pre-existing `signature`, matching the
+  // verifier (`updateService.verifySignatureWithKey` strips `signature` before
+  // canonicalizing). Otherwise re-signing an already-signed manifest would
+  // produce a signature that can never verify.
+  const { signature: _existingSignature, ...unsigned } = manifest;
+  const data = Buffer.from(canonicalJson(unsigned), 'utf8');
   const signature = sign(null, data, privateKey);
-  const signed = { ...manifest, signature: toBase64Url(signature) };
+  const signed = { ...unsigned, signature: toBase64Url(signature) };
   await writeFile(outPath, `${JSON.stringify(signed, null, 2)}\n`, 'utf8');
   process.stdout.write(`Signed ${inPath} -> ${outPath}\n  versionCode: ${signed.versionCode}\n  publicKey  : ${publicKey}\n  signature  : ${signed.signature.slice(0, 16)}...\n`);
 }

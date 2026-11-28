@@ -83,6 +83,9 @@ export const LoansPage: React.FC<LoansPageProps> = ({
   const [dueDate, setDueDate] = useState(() =>
     addDaysToDateString(toLocalDateString(), 7),
   );
+  // Whether the user manually overrode the due date; if so, changing the
+  // borrowed date must not silently clobber it.
+  const [dueDateTouched, setDueDateTouched] = useState(false);
   const [notes, setNotes] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -131,6 +134,7 @@ export const LoansPage: React.FC<LoansPageProps> = ({
     setBorrowerName('');
     setLoanDate(today);
     setDueDate(addDaysToDateString(today, 7));
+    setDueDateTouched(false);
     setNotes('');
     setFormError(null);
     setShowForm(true);
@@ -235,6 +239,7 @@ export const LoansPage: React.FC<LoansPageProps> = ({
     setBorrowerName('');
     setLoanDate(today);
     setDueDate(addDaysToDateString(today, 7));
+    setDueDateTouched(false);
     setNotes('');
     setFormError(null);
     setShowForm(true);
@@ -1137,7 +1142,9 @@ export const LoansPage: React.FC<LoansPageProps> = ({
                         onChange={(e) => {
                           const nextLoanDate = e.target.value;
                           setLoanDate(nextLoanDate);
-                          if (activeDurationDays !== null) {
+                          // Keep quick-duration sync, but never clobber a
+                          // due date the user set manually.
+                          if (!dueDateTouched && activeDurationDays !== null) {
                             setDueDate(
                               addDaysToDateString(nextLoanDate, activeDurationDays),
                             );
@@ -1157,7 +1164,10 @@ export const LoansPage: React.FC<LoansPageProps> = ({
                         id="loan-due-date"
                         type="date"
                         value={dueDate}
-                        onChange={(e) => setDueDate(e.target.value)}
+                        onChange={(e) => {
+                          setDueDate(e.target.value);
+                          setDueDateTouched(true);
+                        }}
                         className="w-full min-h-[46px] px-4 bg-[#F2EFE8] focus:bg-[#ECE8DF] focus:outline-none focus:ring-2 focus:ring-[#1F6F5B]/25 rounded-[12px] text-sm text-[#262925]"
                       />
                     </div>
@@ -1168,15 +1178,16 @@ export const LoansPage: React.FC<LoansPageProps> = ({
                       Durasi cepat:
                     </span>
                     {QUICK_DURATIONS.map((days) => {
-                      const selected = activeDurationDays === days;
+                      const selected = !dueDateTouched && activeDurationDays === days;
                       return (
                         <button
                           key={days}
                           type="button"
                           aria-pressed={selected}
-                          onClick={() =>
-                            setDueDate(addDaysToDateString(loanDate, days))
-                          }
+                          onClick={() => {
+                            setDueDate(addDaysToDateString(loanDate, days));
+                            setDueDateTouched(false);
+                          }}
                           className={`min-h-[34px] px-3.5 rounded-full text-xs font-semibold transition-colors ${
                             selected
                               ? 'bg-[#1F6F5B] text-white'

@@ -48,6 +48,7 @@ function AppContent() {
   const [loanInitialFilter, setLoanInitialFilter] = useState<'all' | 'overdue'>('all');
   const [overdueCount, setOverdueCount] = useState(0);
   const overdueToastShownRef = useRef(false);
+  const signedInNotifiedRef = useRef(false);
   const handleStartLoanForBook = (book: Book) => {
     setPreselectedLoanBook(book);
     setCurrentTab('loans');
@@ -164,14 +165,21 @@ function AppContent() {
       setSession(nextSession);
       setAuthError(null);
       if (event === 'SIGNED_IN') {
-        notify({
-          tone: 'success',
-          title: 'Login berhasil',
-          description: 'Selamat datang kembali di perpustakaan.',
-        });
+        // Notify once per sign-in. Supabase can emit SIGNED_IN repeatedly
+        // (e.g. token refresh / re-subscribe); without a guard the
+        // "Login berhasil" toast loops endlessly.
+        if (!signedInNotifiedRef.current) {
+          signedInNotifiedRef.current = true;
+          notify({
+            tone: 'success',
+            title: 'Login berhasil',
+            description: 'Selamat datang kembali di perpustakaan.',
+          });
+        }
       }
       if (event === 'SIGNED_OUT') {
         overdueToastShownRef.current = false;
+        signedInNotifiedRef.current = false;
       }
     });
 
@@ -281,7 +289,9 @@ function AppContent() {
     return () => {
       active = false;
     };
-  }, [session, appRefreshKey]);
+    // Key on user id, not session object: TOKEN_REFRESHED for the same user
+    // shouldn't re-run current_user_role + reload settings + reset roleLoading.
+  }, [session?.user.id, appRefreshKey]);
 
   useEffect(() => {
     if (isSupabaseConfigured && cloudRole && !allowedTabs[cloudRole].includes(currentTab)) {
@@ -325,7 +335,8 @@ function AppContent() {
   };
 
   if (isSupabaseConfigured) {
-    if (authLoading || roleLoading) {
+    // Don't flash "Menghubungkan..." while re-checking role if we already have one.
+    if (authLoading || (roleLoading && !cloudRole)) {
       return (
         <>
           <UpdateNotifications onUpdateSignal={updater.notifyFromPush} />

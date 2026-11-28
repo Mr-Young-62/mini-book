@@ -51,6 +51,53 @@ function isAllowedCoverProxyUrl(rawUrl: string): URL | null {
   }
 }
 
+const MAX_COVER_REDIRECTS = 5;
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+async function fetchCoverWithValidatedRedirects(initialUrl: URL): Promise<Response> {
+  let currentUrl = initialUrl;
+
+  for (let hop = 0; hop <= MAX_COVER_REDIRECTS; hop++) {
+    const upstream = await fetch(currentUrl.toString(), {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; MeelieFont/1.0)',
+        Accept: 'image/*',
+      },
+      redirect: 'manual',
+      signal: AbortSignal.timeout(8000),
+    });
+
+    if (!REDIRECT_STATUSES.has(upstream.status)) {
+      return upstream;
+    }
+
+    const location = upstream.headers.get('location');
+    // Discard the redirect body so the socket can be reused.
+    await upstream.arrayBuffer().catch(() => undefined);
+    if (!location) {
+      // Redirect without a target: surface it as a failed fetch.
+      return new Response(null, { status: upstream.status, statusText: upstream.statusText });
+    }
+
+    let nextUrl: URL;
+    try {
+      nextUrl = new URL(location, currentUrl);
+    } catch {
+      throw new Error('Invalid redirect target');
+    }
+
+    const validated = isAllowedCoverProxyUrl(nextUrl.toString());
+    if (!validated) {
+      // A permitted public URL must not be able to bounce us to a disallowed
+      // (e.g. private/internal) destination.
+      throw new Error('Redirect target is not allowed');
+    }
+    currentUrl = validated;
+  }
+
+  throw new Error('Too many redirects');
+}
+
 async function handleCoverProxyRequest(
   req: IncomingMessage,
   res: ServerResponse,
@@ -72,14 +119,10 @@ async function handleCoverProxyRequest(
       return;
     }
 
-    const upstream = await fetch(targetUrl.toString(), {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; MeelieFont/1.0)',
-        Accept: 'image/*',
-      },
-      redirect: 'follow',
-      signal: AbortSignal.timeout(8000),
-    });
+    // Follow redirects manually so each hop is re-validated against the
+    // SSRF allow-list. `redirect: 'follow'` would transparently follow a
+    // permitted public URL that redirects to an internal/private target.
+    const upstream = await fetchCoverWithValidatedRedirects(targetUrl);
 
     if (!upstream.ok) {
       res.statusCode = 502;

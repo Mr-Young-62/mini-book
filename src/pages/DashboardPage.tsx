@@ -100,6 +100,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Track loan-loading failure separately from a successful empty result.
+  const [loansError, setLoansError] = useState<string | null>(null);
   const [libraryName, setLibraryName] = useState('Perpustakaan MeelieFont');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -110,15 +112,36 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
     const loadDashboard = async () => {
       setLoading(true);
       setLoadError(null);
+      setLoansError(null);
       try {
-        const [libraryBooks, recentLogs, loanRes] = await Promise.all([
+        // allSettled so a loan-loading failure is surfaced separately and
+        // never disguised as zero active loans.
+        const [booksRes, logsRes, loansRes] = await Promise.allSettled([
           LibraryService.getAllBooks(),
-          userRole === 'Member' ? Promise.resolve([]) : LibraryService.getLogs(),
-          LoanService.getLoans().catch(() => ({ loans: [] as LoanRecord[], localFallback: false })),
+          userRole === 'Member' ? Promise.resolve([] as ActivityLog[]) : LibraryService.getLogs(),
+          LoanService.getLoans(),
         ]);
-        setBooks(libraryBooks);
-        setLogs(recentLogs);
-        setLoans(loanRes.loans);
+
+        if (booksRes.status === 'fulfilled') {
+          setBooks(booksRes.value);
+        } else {
+          throw booksRes.reason;
+        }
+
+        setLogs(logsRes.status === 'fulfilled' ? logsRes.value : []);
+        if (logsRes.status === 'rejected') {
+          console.error('Error loading activity logs:', logsRes.reason);
+        }
+
+        if (loansRes.status === 'fulfilled') {
+          setLoans(loansRes.value.loans);
+        } else {
+          const err = loansRes.reason;
+          console.error('Error loading loan data:', err);
+          setLoans([]);
+          setLoansError(err instanceof Error ? err.message : 'Gagal memuat data pinjaman.');
+        }
+
         const settings = LibraryService.getSettings();
         setLibraryName(settings.library_info?.name || 'Perpustakaan MeelieFont');
       } catch (error) {
@@ -232,6 +255,12 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           >
             Muat ulang
           </button>
+        </div>
+      )}
+
+      {loansError && !loading && (
+        <div role="alert" className="rounded-[18px] bg-[#F7EAE4] px-4 py-3 text-xs font-medium text-[#9E4028]">
+          Gagal memuat data pinjaman ({loansError}). Status pinjaman &amp; ketersediaan mungkin tidak akurat.
         </div>
       )}
 

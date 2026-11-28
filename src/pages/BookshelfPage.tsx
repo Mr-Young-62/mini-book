@@ -194,6 +194,9 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
   const [loans, setLoans] = useState<LoanRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Loan-loading failure is tracked separately so it is not disguised as
+  // "zero active loans / everything available".
+  const [loansError, setLoansError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'shelf' | 'grid' | 'table'>('shelf');
@@ -237,16 +240,32 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
   const loadBooks = async () => {
     setLoading(true);
     setLoadError(null);
+    setLoansError(null);
     try {
-      const [data, loanRes] = await Promise.all([
+      // Books are the primary data; loans are secondary. Use allSettled so a
+      // loan-loading failure is surfaced separately and never reported as an
+      // empty (zero-loan) result that makes every copy look available.
+      const [booksRes, loansRes] = await Promise.allSettled([
         LibraryService.getAllBooks(),
-        LoanService.getLoans().catch(() => ({ loans: [] as LoanRecord[], localFallback: false })),
+        LoanService.getLoans(),
       ]);
-      setBooks(data);
-      setLoans(loanRes.loans);
-    } catch (err) {
-      console.error('Error fetching books:', err);
-      setLoadError(err instanceof Error ? err.message : 'Gagal memuat daftar buku.');
+
+      if (booksRes.status === 'fulfilled') {
+        setBooks(booksRes.value);
+      } else {
+        const err = booksRes.reason;
+        console.error('Error fetching books:', err);
+        setLoadError(err instanceof Error ? err.message : 'Gagal memuat daftar buku.');
+      }
+
+      if (loansRes.status === 'fulfilled') {
+        setLoans(loansRes.value.loans);
+      } else {
+        const err = loansRes.reason;
+        console.error('Error fetching loans:', err);
+        setLoans([]);
+        setLoansError(err instanceof Error ? err.message : 'Gagal memuat data pinjaman.');
+      }
     } finally {
       setLoading(false);
     }
@@ -608,6 +627,12 @@ export const BookshelfPage: React.FC<BookshelfPageProps> = ({
           </select>
         </div>
       </div>
+
+      {loansError && !loading && (
+        <div role="alert" className="rounded-[18px] bg-[#F7EAE4] px-4 py-3 text-xs font-medium text-[#9E4028]">
+          Gagal memuat data pinjaman ({loansError}). Ketersediaan eksemplar mungkin tidak akurat.
+        </div>
+      )}
 
       {loading ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 animate-pulse">

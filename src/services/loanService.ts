@@ -1,8 +1,10 @@
 import type { CreateLoanInput, LoanRecord } from '../types/library';
 import { isSupabaseConfigured, supabase } from '../lib/supabase';
+import { normalizeStockCount } from '../lib/stock';
 import { LibraryService } from './libraryService';
 
 const STORAGE_KEY_LOANS = 'readowl_data_loans';
+const STORAGE_KEY_BOOKS = 'readowl_data_books';
 
 function readLocalLoans(): LoanRecord[] {
   try {
@@ -44,6 +46,37 @@ function isMissingLoansTableError(error: unknown): boolean {
     code === '42P01' ||
     code === 'PGRST205' ||
     (message.includes('loans') && (message.includes('does not exist') || message.includes('schema cache')))
+  );
+}
+
+function isMissingRpcError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const code = 'code' in error ? String(error.code) : '';
+  const message = 'message' in error ? String(error.message).toLowerCase() : '';
+  return (
+    code === '42883' || // function does not exist
+    code === 'PGRST202' || // function not found in schema cache
+    message.includes('create_loan_atomic') &&
+      (message.includes('does not exist') || message.includes('schema cache') || message.includes('not found'))
+  );
+}
+
+function getLocalBookStock(bookId: string): number | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_BOOKS);
+    const books = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(books)) return null;
+    const book = books.find((b) => b && b.id === bookId && !b.deleted_at);
+    return book ? normalizeStockCount(book.stock_count) : null;
+  } catch {
+    return null;
+  }
+}
+
+function countActiveLocalLoans(loans: LoanRecord[], bookId: string): number {
+  return loans.reduce(
+    (n, loan) => (loan.book_id === bookId && !loan.returned_at ? n + 1 : n),
+    0,
   );
 }
 
@@ -93,11 +126,58 @@ export class LoanService {
     if (isSupabaseConfigured) {
       if (!supabase) throw new Error('Supabase sudah dikonfigurasi tetapi klien gagal dimuat.');
       const ownerId = await getCurrentUserId();
+      const bookId = input.book_id || null;
+
+      // Prefer the atomic RPC (serializes per book + rechecks stock in one
+      // transaction). `create_loan_atomic` raises on insufficient stock.
+      const { data: rpcData, error: rpcError } = await supabase.rpc('create_loan_atomic', {
+        p_book_id: bookId,
+        p_item_name: itemName,
+        p_borrower_name: borrowerName,
+        p_borrowed_at: borrowedAt,
+        p_due_date: dueDate,
+        p_notes: notes || null,
+      });
+
+      if (!rpcError && rpcData) {
+        await LibraryService.logActivity(
+          'LOAN_CREATED',
+          'loans',
+          `${borrowerName} meminjam "${itemName}" hingga ${dueDate}`,
+        );
+        return { loan: rpcData as LoanRecord, localFallback: false };
+      }
+      // Insufficient stock / validation / not-authenticated from the RPC must
+      // surface; only a *missing* RPC (migration not applied) falls through.
+      if (rpcError && !isMissingRpcError(rpcError) && !isMissingLoansTableError(rpcError)) {
+        throw rpcError;
+      }
+
+      // Fallback (RPC not deployed): manual insert. Re-check stock freshly to
+      // reduce (not eliminate) the concurrency window; the DB RPC is the real fix.
+      if (bookId) {
+        const { count } = await supabase
+          .from('loans')
+          .select('*', { count: 'exact', head: true })
+          .eq('book_id', bookId)
+          .is('returned_at', null);
+        const { data: bookRow } = await supabase
+          .from('books')
+          .select('stock_count')
+          .eq('id', bookId)
+          .is('deleted_at', null)
+          .maybeSingle();
+        const stock = normalizeStockCount((bookRow as { stock_count?: number } | null)?.stock_count);
+        if ((count ?? 0) >= stock) {
+          throw new Error('Semua eksemplar buku sedang dipinjam. Tunggu pengembalian atau tambah stok.');
+        }
+      }
+
       const { data, error } = await supabase
         .from('loans')
         .insert({
           owner_id: ownerId,
-          book_id: input.book_id || null,
+          book_id: bookId,
           item_name: itemName,
           borrower_name: borrowerName,
           borrowed_at: borrowedAt,
@@ -134,6 +214,14 @@ export class LoanService {
     };
 
     const existing = readLocalLoans();
+    // Re-verify stock against freshly-read data so concurrent local creations
+    // cannot both slip past the earlier UI check for the last copy.
+    if (newLoan.book_id) {
+      const stock = getLocalBookStock(newLoan.book_id);
+      if (stock !== null && countActiveLocalLoans(existing, newLoan.book_id) >= stock) {
+        throw new Error('Semua eksemplar buku sedang dipinjam. Tunggu pengembalian atau tambah stok.');
+      }
+    }
     existing.unshift(newLoan);
     writeLocalLoans(existing);
     await LibraryService.logActivity(

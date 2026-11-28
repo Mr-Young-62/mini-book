@@ -15,6 +15,8 @@ export const ReportsPage: React.FC = () => {
   const [loans, setLoans] = useState<LoanRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Track loan-loading failure separately from a successful empty result.
+  const [loansError, setLoansError] = useState<string | null>(null);
 
   useEffect(() => {
     void loadReportsData();
@@ -23,16 +25,31 @@ export const ReportsPage: React.FC = () => {
   const loadReportsData = async () => {
     setLoading(true);
     setLoadError(null);
+    setLoansError(null);
     try {
-      const [allBooks, loanResult] = await Promise.all([
+      // allSettled: a loan-loading failure must not be disguised as zero
+      // active loans; it is surfaced separately and never swallowed.
+      const [booksRes, loansRes] = await Promise.allSettled([
         LibraryService.getAllBooks(),
-        LoanService.getLoans().catch(() => ({ loans: [] as LoanRecord[], localFallback: false })),
+        LoanService.getLoans(),
       ]);
-      setBooks(allBooks);
-      setLoans(loanResult.loans);
-    } catch (err) {
-      console.error('Error loading reports data:', err);
-      setLoadError(err instanceof Error ? err.message : 'Gagal memuat laporan koleksi.');
+
+      if (booksRes.status === 'fulfilled') {
+        setBooks(booksRes.value);
+      } else {
+        const err = booksRes.reason;
+        console.error('Error loading reports data:', err);
+        setLoadError(err instanceof Error ? err.message : 'Gagal memuat laporan koleksi.');
+      }
+
+      if (loansRes.status === 'fulfilled') {
+        setLoans(loansRes.value.loans);
+      } else {
+        const err = loansRes.reason;
+        console.error('Error loading loan data:', err);
+        setLoans([]);
+        setLoansError(err instanceof Error ? err.message : 'Gagal memuat data pinjaman.');
+      }
     } finally {
       setLoading(false);
     }
@@ -98,6 +115,12 @@ export const ReportsPage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {loansError && !loading && (
+        <div role="alert" className="rounded-[18px] bg-[#F7EAE4] px-4 py-3 text-xs font-medium text-[#9E4028]">
+          Gagal memuat data pinjaman ({loansError}). Angka pinjaman aktif mungkin tidak akurat.
+        </div>
+      )}
 
       <div className="rounded-[18px] overflow-hidden shadow-[0_1px_3px_rgba(38,41,37,0.04)] grid grid-cols-2 lg:grid-cols-4 gap-px bg-[#ECE7DD]">
         <div className="bg-white p-4 sm:p-5 flex flex-col justify-between">
