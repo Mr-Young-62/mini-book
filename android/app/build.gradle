@@ -3,7 +3,11 @@ apply plugin: 'com.android.application'
 def releaseStoreFile = System.getenv('ANDROID_KEYSTORE_PATH')
 def appVersionName = System.getenv('APP_VERSION') ?: '1.0.0'
 def appVersionCode = (System.getenv('APP_VERSION_CODE') ?: '1').toInteger()
-if (System.getenv('CI') == 'true' && !releaseStoreFile) {
+def hasReleaseKeystore = releaseStoreFile != null && !releaseStoreFile.isEmpty() && file(releaseStoreFile).exists()
+// CI release MUST be signed. Local/dev project evaluation must NOT throw just
+// because ANDROID_KEYSTORE_PATH is unset (it previously threw at configure
+// time, blocking even debug/assembleDebug builds).
+if (System.getenv('CI') == 'true' && !hasReleaseKeystore) {
     throw new GradleException('Release APK must be signed. Set ANDROID_KEYSTORE_PATH in CI.')
 }
 
@@ -25,20 +29,24 @@ android {
     }
     signingConfigs {
         release {
-            if (!releaseStoreFile) {
-                throw new GradleException('Release APK must be signed. Set ANDROID_KEYSTORE_PATH before building release.')
+            if (hasReleaseKeystore) {
+                storeFile file(releaseStoreFile)
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('ANDROID_KEY_PASSWORD')
             }
-            storeFile file(releaseStoreFile)
-            storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
-            keyAlias System.getenv('ANDROID_KEY_ALIAS')
-            keyPassword System.getenv('ANDROID_KEY_PASSWORD')
         }
     }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.release
+            // Only attach release signing when a keystore is available; CI is
+            // still hard-failed above. A release without a keystore is unsigned
+            // and Android will refuse to install/update it.
+            if (hasReleaseKeystore) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }

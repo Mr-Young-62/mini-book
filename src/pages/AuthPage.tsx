@@ -272,7 +272,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
             </p>
             <p className="text-center text-[11px] leading-relaxed text-[#737770]">
               {mode === 'register'
-                ? 'Akun baru mendapat role Administrator dan dapat mengakses pengaturan aplikasi.'
+                ? 'Akun baru mendapat role Member; admin perpustakaan dapat menaikkan peran.'
                 : 'Jika belum memiliki akun, Anda dapat mendaftar.'}
             </p>
             {mode === 'login' && (
