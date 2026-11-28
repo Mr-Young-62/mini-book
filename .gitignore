@@ -14,3 +14,7 @@ src-tauri/target/
 src-tauri/gen/
 deno.lock
 .vercel
+
+# generated keypairs (never commit private keys)
+private.b64
+public.b64

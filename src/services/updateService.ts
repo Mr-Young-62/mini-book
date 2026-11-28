@@ -30,7 +30,13 @@ const STORAGE_MANIFEST = 'readowl_update_manifest';
 // Ed25519 public key pinned in the app (Tahap E, S7). Private key lives only in
 // the CI secret UPDATER_SIGNING_PRIVATE_KEY; regenerate with
 // `node scripts/sign-manifest.mjs --gen-key` and replace this value if rotated.
-const UPDATER_PUBLIC_KEY_B64 = 'Y2nWfBUAzPtIWgxncXUwHeKVBtjo9NualiVS94hhARs';
+// Rotated signing key. `UPDATER_SIGNING_PRIVATE_KEY` (GitHub secret) must be
+// the matching private (`private.b64`, 32-byte Ed25519 seed base64url);
+// workflow `sign-manifest.mjs --expect-pub` checks it. NOTE: apps already
+// installed pinning the previous key will not verify `latest.json` signed
+// with this key (old-version in-app updates require this app build + signed
+// manifest together). Private key is NOT in the repo.
+const UPDATER_PUBLIC_KEY_B64 = 'KsE6mCHaQPZ7cOAAXwf5uR2M_S8VH2FM5HNBk5h5qy4';
 
 export interface UpdateManifest {
   schemaVersion: number;
