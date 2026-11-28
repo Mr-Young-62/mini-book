@@ -32,10 +32,22 @@ function toBase64Url(buffer) {
 }
 
 function fromBase64Url(text) {
-  return Buffer.from(String(text), 'base64url');
+  // Robust base64/base64url decode: strip whitespace, map -_ -> +/, pad.
+  const normalized = String(text).replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+  return Buffer.from(padded, 'base64');
 }
 
 function buildPrivateKey(seed) {
+  // Accept a raw 32-byte Ed25519 seed OR a PKCS8-DER Ed25519 key (16-byte
+  // prefix + 32-byte seed). Reject anything else.
+  if (seed.length === ED25519_PKCS8_PREFIX.length + 32) {
+    try {
+      return createPrivateKey({ key: seed, format: 'der', type: 'pkcs8' });
+    } catch {
+      // fall through to raw-seed handling
+    }
+  }
   if (seed.length !== 32) throw new Error('Ed25519 private key seed must be 32 bytes.');
   const der = Buffer.concat([ED25519_PKCS8_PREFIX, seed]);
   return createPrivateKey({ key: der, format: 'der', type: 'pkcs8' });
