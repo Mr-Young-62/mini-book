@@ -253,12 +253,17 @@ jobs:
           APK_SIZE="$(stat -c%s "$APK_PATH")"
           PUBLISHED_ARGS=()
           PREVIOUS_MANIFEST="$(mktemp)"
-          if curl -fsS --max-time 15 "$PREVIOUS_URL" -o "$PREVIOUS_MANIFEST"; then
+          # Follow redirects (-L): github.com/releases/latest/download/... 302s
+          # to the asset. Only pass --published if we got a NON-EMPTY, valid-JSON
+          # body; otherwise bootstrap (no usable previous manifest).
+          if curl -fsSL --max-time 15 "$PREVIOUS_URL" -o "$PREVIOUS_MANIFEST" \
+            && [ -s "$PREVIOUS_MANIFEST" ] \
+            && node -e "JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'))" "$PREVIOUS_MANIFEST" 2>/dev/null; then
             PUBLISHED_ARGS=(--published "$PREVIOUS_MANIFEST")
             echo "Comparing versionCode against published manifest: $PREVIOUS_URL"
           else
             rm -f "$PREVIOUS_MANIFEST"
-            echo "No published latest.json yet, bootstrapping."
+            echo "No usable published latest.json yet, bootstrapping."
           fi
           CHANGELOG_FILE="$(mktemp)"
           PREV_TAG="$(git tag --list 'v*' --sort=-v:refname | grep -vx "$RELEASE_TAG" | head -n1 || true)"

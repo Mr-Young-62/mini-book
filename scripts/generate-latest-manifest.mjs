@@ -151,6 +151,11 @@ async function parseChangelogFile(path) {
 async function readPublished(path) {
   try {
     const raw = await readFile(path, 'utf8');
+    // An empty/whitespace file carries no published versionCode. This happens
+    // when `curl` downloads a redirect/empty body without `-L`, or a bootstrap
+    // `mktemp`. Treat it as "nothing published yet" rather than failing — but
+    // still refuse to publish over a NON-empty invalid manifest below.
+    if (raw.trim() === '') return null;
     const parsed = JSON.parse(raw);
     if (typeof parsed !== 'object' || parsed === null) fail('Published manifest is not an object.');
     if (parsed.app !== APP_ID) {
